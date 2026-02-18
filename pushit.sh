@@ -116,10 +116,10 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 
 # Clone just the gh-pages branch into a temp dir (shallow, or fresh if new)
 if git ls-remote --exit-code origin "$PAGES_BRANCH" >/dev/null 2>&1; then
-  git clone --depth 1 --branch "$PAGES_BRANCH" . "$TMP_DIR"
+  git clone --depth 1 --branch "$PAGES_BRANCH" "$REPO_URL" "$TMP_DIR"
 else
   # First deploy: init empty branch
-  git clone --depth 1 . "$TMP_DIR"
+  git clone --depth 1 "$REPO_URL" "$TMP_DIR"
   pushd "$TMP_DIR" >/dev/null
   git checkout --orphan "$PAGES_BRANCH"
   git rm -rf . >/dev/null 2>&1 || true
