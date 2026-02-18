@@ -820,12 +820,24 @@ function refreshHeaderCountyOptions() {
   if (!headerCountySelect) return
   const options = countyPickerOptions
   if (!Array.isArray(options) || options.length === 0) {
-    headerCountySelect.innerHTML = '<option value="">Loading…</option>'
+    headerCountySelect.innerHTML = ''
+    const loadingOption = document.createElement('option')
+    loadingOption.value = ''
+    loadingOption.textContent = 'Loading…'
+    headerCountySelect.appendChild(loadingOption)
     return
   }
-  headerCountySelect.innerHTML = options
-    .map((opt) => `<option value="${escapeHtml(opt.countyRegion || '')}" ${opt.isActive ? 'selected' : ''}>${escapeHtml(opt.countyName)}</option>`)
-    .join('')
+  const activeRegion = String(currentCountyRegion || '').toUpperCase()
+  headerCountySelect.innerHTML = ''
+  options.forEach((opt, index) => {
+    const optionEl = document.createElement('option')
+    optionEl.value = String(opt.countyRegion || '')
+    optionEl.textContent = String(opt.countyName || 'Unknown county')
+    optionEl.dataset.index = String(index)
+    headerCountySelect.appendChild(optionEl)
+  })
+  const selectedIndex = options.findIndex((opt) => String(opt.countyRegion || '').toUpperCase() === activeRegion)
+  headerCountySelect.selectedIndex = selectedIndex >= 0 ? selectedIndex : 0
 }
 
 function refreshSearchRegionOptions() {
@@ -2545,9 +2557,15 @@ headerDaysBackSelect?.addEventListener('change', (event) => {
   applyActiveFiltersAndRender({ fitToObservations: true })
 })
 headerCountySelect?.addEventListener('change', (event) => {
-  const countyRegion = String(event.target.value || '').toUpperCase()
-  if (!countyRegion) return
-  const option = countyPickerOptions.find((opt) => String(opt.countyRegion || '').toUpperCase() === countyRegion)
+  const selectEl = event.target
+  const selectedOptionEl = selectEl?.options?.[selectEl.selectedIndex] || null
+  const selectedIndex = Number(selectedOptionEl?.dataset?.index)
+  let option = Number.isInteger(selectedIndex) ? countyPickerOptions[selectedIndex] : null
+  if (!option) {
+    const countyRegion = String(selectEl?.value || '').toUpperCase()
+    if (!countyRegion) return
+    option = countyPickerOptions.find((opt) => String(opt.countyRegion || '').toUpperCase() === countyRegion)
+  }
   if (!option || option.isActive) return
   void loadNeighborCounty(option.lat, option.lng, option.countyRegion, option.countyName)
 })
