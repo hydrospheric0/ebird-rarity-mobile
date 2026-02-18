@@ -3,7 +3,6 @@
 ## About the tool
 This mobile-first version of eBird Rarity Mapper helps birders quickly explore notable eBird reports and county-level rarity patterns from phones.
 It uses a static GitHub Pages frontend and a Cloudflare Worker API backend (same architecture as desktop).
-
 The app is hosted at: https://hydrospheric0.github.io/ebird-rarity-mobile/
 
 ## Features
@@ -19,32 +18,6 @@ The app is hosted at: https://hydrospheric0.github.io/ebird-rarity-mobile/
 3. Adjust days-back and ABA filters.
 4. Tap neighboring counties on the map (or use the county picker) to switch county context.
 5. Tap map points for species/checklist details.
-
-## Local development
-```bash
-npm install
-npm run dev
-```
-
-## Deployment (GitHub Pages)
-From this folder:
-
-```bash
-bash ./pushit.sh --all "Update mobile app"
-```
-
-Notes:
-- pushit.sh commits source to main, builds with Vite, then deploys dist/ to gh-pages.
-- The script uses a default Worker URL if `VITE_API_BASE_URL` is not explicitly set.
-- To override the backend for a deploy:
-
-```bash
-VITE_API_BASE_URL="https://your-worker.workers.dev" bash ./pushit.sh --all "Deploy with alternate worker"
-```
-
-## Project notes
-- This repo is intentionally separate from desktop to allow mobile-specific iteration.
-- Temporary/local files are excluded via .gitignore (including temp/, .env, and build outputs).
 
 ## Support this project
 If you find this tool useful, please consider supporting its development:

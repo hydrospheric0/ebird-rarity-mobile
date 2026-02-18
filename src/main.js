@@ -2,7 +2,7 @@ import './styles.css'
 import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
 import { API_BASE_URL, fetchWorkerHealth } from './config/api.js'
-import { YOLO_CODES } from './data/yolo-codes.js'
+import { getYoloSpeciesInfo, getSpeciesMapLabel } from './data/species-reference.js'
 
 const BUILD_TAG = typeof __BUILD_TAG__ !== 'undefined' ? __BUILD_TAG__ : 'dev'
 
@@ -1401,13 +1401,15 @@ function renderAbaCodeBadge(code) {
 }
 
 function renderYoloCodeBadge(species, abaCode) {
-  const yCode = YOLO_CODES[species]
-  if (yCode == null) {
+  const yoloInfo = getYoloSpeciesInfo(species)
+  const yCode = Number(yoloInfo?.code)
+  if (!Number.isFinite(yCode)) {
     return '<span class="yolo-code-badge yolo-code-none" title="No Yolo County code"></span>'
   }
   const diverges = Number.isFinite(abaCode) && yCode > abaCode
+  const noteSuffix = yoloInfo?.notes ? ` · ${escapeHtml(String(yoloInfo.notes))}` : ''
   const marker = diverges ? ' yolo-diverges' : ''
-  return `<span class="yolo-code-badge yolo-code-${yCode}${marker}" title="Yolo County code ${yCode}${diverges ? ' (rarer locally)' : ''}">${yCode}</span>`
+  return `<span class="yolo-code-badge yolo-code-${yCode}${marker}" title="Yolo County code ${yCode}${diverges ? ' (rarer locally)' : ''}${noteSuffix}">${yCode}</span>`
 }
 
 function isConfirmedObservation(item) {
@@ -1647,10 +1649,11 @@ function buildFastCanvasOverlay() {
       const r = MARKER_RADIUS
       for (const pt of fastCanvasData) {
         if (pt.hidden) continue
-        const cp = m.latLngToContainerPoint([pt.lat, pt.lng])
-        // Offset by topLeft inversion so strokes sit on correct pixel
-        const x = cp.x - topLeft.x
-        const y = cp.y - topLeft.y
+        // Use layer-space coordinates so canvas positioning and point math
+        // stay in the same reference frame during pan/zoom transforms.
+        const lp = m.latLngToLayerPoint([pt.lat, pt.lng])
+        const x = lp.x - topLeft.x
+        const y = lp.y - topLeft.y
         ctx.beginPath()
         ctx.arc(x, y, r, 0, Math.PI * 2)
         ctx.fillStyle = pt.fill
@@ -1799,7 +1802,7 @@ function renderNotablesOnMap(observations, activeCountyCode = '', fitToObservati
     const safeSpecies = escapeHtml(species)
     const itemCounty = String(item?.subnational2Code || '').toUpperCase()
     const isInActiveCounty = !activeCountyCode || itemCounty === activeCountyCode
-    const label = (isInActiveCounty && showPermanentLabels) ? species : null
+    const label = (isInActiveCounty && showPermanentLabels) ? getSpeciesMapLabel(species) : null
     const pt = { lat, lng, fill: colors.fill, border: colors.border, species, safeSpecies, abaCode, subIds, subDates, item, label, hidden: false }
     nextData.push(pt)
     if (!nextSpeciesMap.has(species)) nextSpeciesMap.set(species, [])

@@ -7,6 +7,7 @@ set -euo pipefail
 # Usage:
 #   ./pushit.sh [message]
 #   ./pushit.sh --all [message]       # include untracked source files
+#   ./pushit.sh --release <version> [message]  # explicit version override
 #
 # GitHub Pages is served from the gh-pages branch (root of that branch).
 # Source lives on main. dist/ is kept out of the source tree (.gitignore).
@@ -24,13 +25,17 @@ usage() {
 Usage:
   ./pushit.sh [message]
   ./pushit.sh --all [message]
+  ./pushit.sh --release <version> [message]
 
 Options:
   --all   Stage all files including untracked (git add -A). Default stages
           only already-tracked files (git add -u).
+  --release <version>
+          Set an explicit version (e.g., 0.0.7) instead of auto-bumping.
   -h      Show this help.
 
 The script will:
+  0. Auto-bump patch version by default (x.y.z -> x.y.(z+1)).
   1. Init git and wire up the remote if this is the first run.
   2. Stage + commit source changes to main.
   3. Run `npm run build` (Vite).
@@ -38,13 +43,77 @@ The script will:
 EOF
 }
 
+is_valid_semver() {
+  [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+}
+
+get_current_version() {
+  local v=""
+  if [[ -f VERSION ]]; then
+    v="$(tr -d '[:space:]' < VERSION)"
+  fi
+  if [[ -z "$v" && -f package.json ]]; then
+    v="$(node -e "const fs=require('fs');const j=JSON.parse(fs.readFileSync('package.json','utf8'));process.stdout.write(String(j.version||''));")"
+  fi
+  if ! is_valid_semver "$v"; then
+    echo "ERROR: Could not determine a valid current version (expected x.y.z)." >&2
+    exit 1
+  fi
+  echo "$v"
+}
+
+increment_patch_version() {
+  local v="$1"
+  IFS='.' read -r major minor patch <<< "$v"
+  patch=$((patch + 1))
+  echo "${major}.${minor}.${patch}"
+}
+
+set_version_files() {
+  local next_version="$1"
+  printf '%s\n' "$next_version" > VERSION
+
+  node -e "
+const fs=require('fs');
+const next=process.argv[1];
+const pkgPath='package.json';
+const lockPath='package-lock.json';
+
+const pkg=JSON.parse(fs.readFileSync(pkgPath,'utf8'));
+pkg.version=next;
+fs.writeFileSync(pkgPath, JSON.stringify(pkg,null,2)+'\\n');
+
+if (fs.existsSync(lockPath)) {
+  const lock=JSON.parse(fs.readFileSync(lockPath,'utf8'));
+  lock.version=next;
+  if (lock.packages && lock.packages['']) {
+    lock.packages[''].version=next;
+  }
+  fs.writeFileSync(lockPath, JSON.stringify(lock,null,2)+'\\n');
+}
+" "$next_version"
+}
+
 # ── arg parsing ─────────────────────────────────────────────────────────────
 stage_mode="tracked"
+release_version=""
 msg_parts=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --all) stage_mode="all"; shift ;;
+    --release)
+      release_version="${2:-}"
+      if [[ -z "$release_version" ]]; then
+        echo "ERROR: --release requires a version (e.g., 0.0.7)." >&2
+        exit 1
+      fi
+      if ! is_valid_semver "$release_version"; then
+        echo "ERROR: --release must be in x.y.z format (e.g., 0.0.7)." >&2
+        exit 1
+      fi
+      shift 2
+      ;;
     -h|--help) usage; exit 0 ;;
     --) shift; msg_parts+=("$@"); break ;;
     *) msg_parts+=("$1"); shift ;;
@@ -60,6 +129,16 @@ if [[ -z "${VITE_API_BASE_URL:-}" ]]; then
   export VITE_API_BASE_URL="$DEFAULT_VITE_API_BASE_URL"
   echo "ℹ️  VITE_API_BASE_URL not set. Using default: $VITE_API_BASE_URL"
 fi
+
+current_version="$(get_current_version)"
+if [[ -n "$release_version" ]]; then
+  next_version="$release_version"
+  echo "🏷️  Using explicit version: $next_version"
+else
+  next_version="$(increment_patch_version "$current_version")"
+  echo "🏷️  Auto-bumping version: $current_version → $next_version"
+fi
+set_version_files "$next_version"
 
 # ── 1. Ensure git repo exists ────────────────────────────────────────────────
 if [ ! -d ".git" ]; then
