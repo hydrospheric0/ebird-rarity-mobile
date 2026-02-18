@@ -1185,6 +1185,22 @@ function setMode(mode) {
 async function triggerHardRefresh() {
   setMapLoading(true, 'Refreshing…')
 
+  try {
+    localStorage.removeItem('mrm_last_pos')
+    localStorage.removeItem('mrm_runtime_log')
+    const keysToRemove = []
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index)
+      if (!key) continue
+      if (key.startsWith('notables:') || key.startsWith('county_context:')) {
+        keysToRemove.push(key)
+      }
+    }
+    keysToRemove.forEach((key) => localStorage.removeItem(key))
+  } catch {
+    // ignore storage cleanup errors
+  }
+
   if ('serviceWorker' in navigator) {
     const registrations = await navigator.serviceWorker.getRegistrations()
     await Promise.all(registrations.map((registration) => registration.unregister()))
@@ -1197,6 +1213,7 @@ async function triggerHardRefresh() {
 
   const url = new URL(window.location.href)
   url.searchParams.set('refresh', String(Date.now()))
+  url.searchParams.set('force_location', '1')
   window.location.replace(url.toString())
 }
 
@@ -2913,8 +2930,15 @@ checkApi()
 
 // On startup, use cached location first (if available), otherwise request current location.
 ;(async () => {
+  const launchUrl = new URL(window.location.href)
+  const forceFreshLocation = launchUrl.searchParams.get('force_location') === '1'
+  if (forceFreshLocation) {
+    launchUrl.searchParams.delete('force_location')
+    window.history.replaceState({}, '', launchUrl.toString())
+  }
+
   try {
-    const stored = localStorage.getItem('mrm_last_pos')
+    const stored = forceFreshLocation ? null : localStorage.getItem('mrm_last_pos')
     if (stored) {
       const { lat, lng, ts } = JSON.parse(stored)
       const ageMs = Date.now() - ts
