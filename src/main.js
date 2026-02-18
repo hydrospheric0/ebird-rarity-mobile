@@ -730,7 +730,7 @@ function updateCountyDots() {
 
     dot.on('click', (e) => {
       L.DomEvent.stopPropagation(e)
-      activateCountyFromOption(opt)
+      activateCountyByRegion(opt.countyRegion, opt.lat, opt.lng, opt.countyName)
     })
 
     countyDotLayerRef.addLayer(dot)
@@ -840,6 +840,32 @@ function refreshHeaderCountyOptions() {
 function switchToCountyOption(option) {
   if (!option || option.isActive) return
   void loadNeighborCounty(option.lat, option.lng, option.countyRegion, option.countyName)
+}
+
+function activateCountyByRegion(countyRegion, lat = null, lng = null, countyName = '') {
+  const region = String(countyRegion || '').toUpperCase()
+  let option = null
+
+  if (region) {
+    option = countyPickerOptions.find((opt) => String(opt.countyRegion || '').toUpperCase() === region) || null
+  }
+
+  if (!option && countyName) {
+    const nameNeedle = String(countyName).trim().toLowerCase()
+    option = countyPickerOptions.find((opt) => String(opt.countyName || '').trim().toLowerCase() === nameNeedle) || null
+  }
+
+  if (!option) {
+    option = {
+      countyRegion: region || null,
+      countyName: countyName || '',
+      lat,
+      lng,
+      isActive: false,
+    }
+  }
+
+  activateCountyFromOption(option)
 }
 
 function activateCountyFromOption(option) {
@@ -1475,6 +1501,22 @@ function drawCountyOverlay(geojson) {
   const neighborStroke = isSat ? '#94a3b8' : '#64748b'
   const activeStroke = isSat ? '#ffffff' : '#dc2626'
 
+  const flashNeighborLayer = (layer) => {
+    if (!layer || typeof layer.setStyle !== 'function') return
+    const nowSat = currentBasemap === 'satellite'
+    const baseStyle = { fillOpacity: 0.46, fillColor: '#94a3b8', color: nowSat ? '#94a3b8' : '#64748b', weight: 0.75 }
+    layer.setStyle({ fillOpacity: 0.72, fillColor: '#fde047', color: '#f59e0b', weight: 1.25 })
+    if (layer._flashTimer) window.clearTimeout(layer._flashTimer)
+    layer._flashTimer = window.setTimeout(() => {
+      try {
+        layer.setStyle(baseStyle)
+      } catch {
+        // ignore layer reset errors during rapid county switches
+      }
+      layer._flashTimer = null
+    }, 220)
+  }
+
   if (!neighborLayerRef) {
     neighborLayerRef = L.geoJSON(null, {
       pane: 'countyNeighborPane',
@@ -1485,7 +1527,8 @@ function drawCountyOverlay(geojson) {
         layer.on({
           click: (e) => {
             L.DomEvent.stopPropagation(e)
-            activateCountyFromOption({ lat: e.latlng.lat, lng: e.latlng.lng, countyRegion: region, countyName: name, isActive: false })
+            flashNeighborLayer(layer)
+            activateCountyByRegion(region, e.latlng.lat, e.latlng.lng, name)
           },
           mouseover: () => layer.setStyle({ fillOpacity: 0.56, fillColor: '#94a3b8', color: '#475569', weight: 1 }),
           mouseout: () => {
@@ -1941,12 +1984,16 @@ function buildObservationPopupHtml(pt) {
   if (!pt) return ''
   const item = pt.item
   const locId = item?.locId ? String(item.locId) : null
+  const locName = item?.locName ? String(item.locName) : ''
   const abaBadge = renderAbaCodeBadge(pt.abaCode)
   const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${pt.lat},${pt.lng}`)}`
-  const speciesEl = locId
-    ? `<a class="obs-popup-species" href="https://ebird.org/hotspot/${encodeURIComponent(locId)}" target="_blank" rel="noopener">${pt.safeSpecies}</a>`
-    : `<span class="obs-popup-species">${pt.safeSpecies}</span>`
+  const speciesEl = `<span class="obs-popup-species">${pt.safeSpecies}</span>`
   const header = `<div class="obs-popup-header">${abaBadge}${speciesEl}<a class="obs-popup-mapit" href="${mapsUrl}" target="_blank" rel="noopener" title="Map it">&#x1F4CD;</a></div>`
+  const locationLine = locName
+    ? (locId
+      ? `<a class="obs-popup-location" href="https://ebird.org/hotspot/${encodeURIComponent(locId)}" target="_blank" rel="noopener" title="${escapeHtml(locName)}">${escapeHtml(locName)}</a>`
+      : `<div class="obs-popup-location" title="${escapeHtml(locName)}">${escapeHtml(locName)}</div>`)
+    : ''
 
   const checklistItems = (pt.subIds || []).map((sid, i) => {
     const label = formatObsDateTime(pt.subDates?.[i])
@@ -1956,7 +2003,7 @@ function buildObservationPopupHtml(pt) {
     ? `<ul class="obs-popup-checklist">${checklistItems.join('')}</ul>`
     : ''
 
-  return `<div class="obs-popup-inner">${header}${checklistSection}</div>`
+  return `<div class="obs-popup-inner">${header}${locationLine}${checklistSection}</div>`
 }
 
 function openObservationPopup(pt) {
