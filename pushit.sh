@@ -17,6 +17,7 @@ REPO_URL="https://github.com/hydrospheric0/ebird-rarity-mobile.git"
 PAGES_BRANCH="gh-pages"
 SOURCE_BRANCH="main"
 DEFAULT_VITE_API_BASE_URL="https://ebird-rarity-mapper.bartwickel.workers.dev"
+DEFAULT_UPDATE_MESSAGE="Minor updates"
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
@@ -35,7 +36,7 @@ Options:
   -h      Show this help.
 
 The script will:
-  0. Auto-bump patch version by default (x.y.z -> x.y.(z+1)).
+  0. Auto-bump patch version by default (+0.0.1, i.e. x.y.z -> x.y.(z+1)).
   1. Init git and wire up the remote if this is the first run.
   2. Stage + commit source changes to main.
   3. Run `npm run build` (Vite).
@@ -122,7 +123,7 @@ done
 
 msg="${msg_parts[*]:-}"
 if [[ -z "$msg" ]]; then
-  msg="Update $(date -Iseconds)"
+  msg="$DEFAULT_UPDATE_MESSAGE"
 fi
 
 if [[ -z "${VITE_API_BASE_URL:-}" ]]; then
@@ -136,7 +137,7 @@ if [[ -n "$release_version" ]]; then
   echo "🏷️  Using explicit version: $next_version"
 else
   next_version="$(increment_patch_version "$current_version")"
-  echo "🏷️  Auto-bumping version: $current_version → $next_version"
+  echo "🏷️  Auto-bumping version (+0.0.1): $current_version → $next_version"
 fi
 set_version_files "$next_version"
 

@@ -12,6 +12,7 @@ app.innerHTML = `
   <div id="appShell" class="app-shell">
     <header class="app-header">
       <h1 class="app-title">eBird Rarities</h1>
+      <span class="header-sep" aria-hidden="true">}</span>
 
       <div class="top-menu" aria-label="Top menu">
         <select id="headerCountySelect" class="top-menu-select" aria-label="County">
@@ -521,15 +522,18 @@ function updateAbaCodePickerOptions(source) {
 
 function buildCountyGeojsonWithActiveRegion(sourceGeojson, countyRegion) {
   if (!sourceGeojson || !Array.isArray(sourceGeojson.features) || !countyRegion) return null
+  const targetRegion = String(countyRegion).toUpperCase()
   let found = false
   const features = sourceGeojson.features.map((feature) => {
-    const region = feature?.properties?.countyRegion || null
-    const isActive = region === countyRegion
+    const regionRaw = feature?.properties?.countyRegion || null
+    const region = regionRaw ? String(regionRaw).toUpperCase() : null
+    const isActive = region === targetRegion
     if (isActive) found = true
     return {
       ...feature,
       properties: {
         ...(feature?.properties || {}),
+        countyRegion: regionRaw || null,
         isActiveCounty: isActive,
       },
     }
@@ -537,7 +541,7 @@ function buildCountyGeojsonWithActiveRegion(sourceGeojson, countyRegion) {
   if (!found) return null
   return {
     ...sourceGeojson,
-    activeCountyRegion: countyRegion,
+    activeCountyRegion: targetRegion,
     features,
   }
 }
@@ -867,7 +871,7 @@ function updateCountyPickerFromGeojson(geojson) {
       if (!center) return null
       return {
         countyName: feature?.properties?.countyName || feature?.properties?.NAME || feature?.properties?.name || 'Unknown county',
-        countyRegion: feature?.properties?.countyRegion || null,
+        countyRegion: String(feature?.properties?.countyRegion || '').toUpperCase() || null,
         isActive: Boolean(feature?.properties?.isActiveCounty),
         lat: center.lat,
         lng: center.lng,
@@ -2341,6 +2345,9 @@ async function loadStateNotables(stateRegion, requestId = null) {
 }
 
 async function loadNeighborCounty(lat, lng, countyRegion, countyName) {
+  const normalizedCountyRegion = countyRegion ? String(countyRegion).toUpperCase() : null
+  let targetLat = Number(lat)
+  let targetLng = Number(lng)
   const countySwitchRequestId = ++latestCountySwitchRequestId
   mapLoadState.activeCounty = false
   mapLoadState.stateMask = false
@@ -2353,22 +2360,37 @@ async function loadNeighborCounty(lat, lng, countyRegion, countyName) {
 
   let countyContextPromise
   let zoomGeojson = null
-  const localCountyGeojson = buildCountyGeojsonWithActiveRegion(latestCountyContextGeojson, countyRegion || null)
+  const localCountyGeojson = buildCountyGeojsonWithActiveRegion(latestCountyContextGeojson, normalizedCountyRegion || null)
   if (localCountyGeojson) {
     drawCountyOverlay(localCountyGeojson)
     zoomGeojson = localCountyGeojson
     const localCountyFeature = localCountyGeojson.features.find((f) => f?.properties?.isActiveCounty)
     const localCountyLabel = localCountyFeature?.properties?.countyName || localCountyFeature?.properties?.NAME || localCountyFeature?.properties?.name || countyName || null
-    const localCountyRegion = localCountyFeature?.properties?.countyRegion || countyRegion || null
+    const localCountyRegion = String(localCountyFeature?.properties?.countyRegion || normalizedCountyRegion || '').toUpperCase() || null
+    const center = getFeatureCenter(localCountyFeature)
+    if ((!Number.isFinite(targetLat) || !Number.isFinite(targetLng)) && center) {
+      targetLat = center.lat
+      targetLng = center.lng
+    }
     countyContextPromise = Promise.resolve({ countyLabel: localCountyLabel, countyRegion: localCountyRegion })
   } else {
-    countyContextPromise = updateCountyForLocation(lat, lng, null, countySwitchRequestId)
+    if (!Number.isFinite(targetLat) || !Number.isFinite(targetLng)) {
+      if (Number.isFinite(lastUserLat) && Number.isFinite(lastUserLng)) {
+        targetLat = lastUserLat
+        targetLng = lastUserLng
+      } else if (map) {
+        const center = map.getCenter()
+        targetLat = center.lat
+        targetLng = center.lng
+      }
+    }
+    countyContextPromise = updateCountyForLocation(targetLat, targetLng, null, countySwitchRequestId)
   }
   const countyContext = await countyContextPromise
 
   if (isStaleCountySwitchRequest(countySwitchRequestId)) return
 
-  const resolvedCountyRegion = countyContext?.countyRegion || countyRegion || null
+  const resolvedCountyRegion = String(countyContext?.countyRegion || normalizedCountyRegion || '').toUpperCase() || null
   if (!zoomGeojson && latestCountyContextGeojson) zoomGeojson = latestCountyContextGeojson
   zoomToActiveCounty(zoomGeojson, resolvedCountyRegion)
 
@@ -2377,7 +2399,7 @@ async function loadNeighborCounty(lat, lng, countyRegion, countyName) {
     mapCountyLabel.textContent = label
     mapCountyLabel.removeAttribute('hidden')
   }
-  await loadCountyNotables(lat, lng, resolvedCountyRegion, null, countySwitchRequestId, false)
+  await loadCountyNotables(targetLat, targetLng, resolvedCountyRegion, null, countySwitchRequestId, false)
 }
 
 async function requestUserLocation(manualRetry = false) {
@@ -2789,7 +2811,7 @@ document.querySelector('#toggleAllVis')?.addEventListener('change', (event) => {
 setMode('map')
 checkApi()
 
-// On startup, ask whether to use current location or cached location (if available).
+// On startup, use cached location first (if available), otherwise request current location.
 ;(async () => {
   try {
     const stored = localStorage.getItem('mrm_last_pos')
@@ -2798,11 +2820,6 @@ checkApi()
       const ageMs = Date.now() - ts
       // Keep cached location for up to 7 days
       if (Number.isFinite(lat) && Number.isFinite(lng) && ageMs < 7 * 24 * 60 * 60 * 1000) {
-        const useLiveLocation = window.confirm('Use current location? Tap Cancel to use cached location.')
-        if (useLiveLocation) {
-          void requestUserLocation(false)
-          return
-        }
         lastUserLat = lat
         lastUserLng = lng
         const requestId = ++latestLocationRequestId
@@ -2824,7 +2841,6 @@ checkApi()
           }
         }
         await notablesPromise
-        // Do not auto-reprompt for location after cached startup.
         // Fresh location can be requested explicitly via "Use My Location".
         return
       }
