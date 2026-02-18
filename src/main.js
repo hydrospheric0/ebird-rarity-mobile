@@ -891,8 +891,10 @@ function refreshSearchRegionOptions() {
     return
   }
   const currentRegion = (currentCountyRegion || '').toUpperCase()
+  const stateRegion = stateRegionFromCountyRegion(currentRegion)
   searchRegionSelect.innerHTML = [
     '<option value="">Current</option>',
+    ...(stateRegion ? [`<option value="${escapeHtml(stateRegion)}">${escapeHtml(stateRegion)} (statewide)</option>`] : []),
     ...options.map((opt) => {
       const region = String(opt.countyRegion || '').toUpperCase()
       const selected = region && region === currentRegion
@@ -1539,7 +1541,7 @@ function drawCountyOverlay(geojson) {
       pane: 'countyNeighborPane',
       style: { color: neighborStroke, weight: 0.75, fillColor: '#94a3b8', fillOpacity: 0.46 },
       onEachFeature: (feature, layer) => {
-        const region = feature?.properties?.countyRegion || null
+        const region = String(feature?.properties?.countyRegion || feature?.properties?.subnational2Code || '').toUpperCase() || null
         const name = feature?.properties?.countyName || feature?.properties?.NAME || feature?.properties?.name || ''
         layer.on({
           click: (e) => {
@@ -1594,6 +1596,10 @@ function drawCountyOverlay(geojson) {
   if (mapCountyLabel && activeCountyName) {
     mapCountyLabel.textContent = activeCountyName
     mapCountyLabel.removeAttribute('hidden')
+  }
+
+  if (map && currentCountyRegion && map.getZoom() > 9) {
+    void applyHiResCountyOutline(currentCountyRegion)
   }
 
   markMapPartReady('activeCounty')
@@ -2440,8 +2446,11 @@ async function loadStateNotables(stateRegion, requestId = null) {
   try {
     const observations = await fetchRegionRarities(stateRegion, 14, 30000)
     if (isStaleNotablesLoad(notablesLoadId, requestId)) return
-    renderNotableTable(observations, stateRegion, stateRegion)
-    renderNotablesOnMap(observations, '', true)
+    currentRawObservations = Array.isArray(observations) ? observations : []
+    currentCountyName = stateRegion
+    currentCountyRegion = stateRegion
+    currentActiveCountyCode = ''
+    applyActiveFiltersAndRender({ renderMap: true, fitToObservations: true })
     setMapLoading(false)
     markMapPartReady('observations')
   } catch (error) {
@@ -2702,8 +2711,12 @@ searchApplyBtn?.addEventListener('click', () => {
   updateFilterUi()
   applyActiveFiltersAndRender({ fitToObservations: true })
   if (selectedRegion) {
-    const option = countyPickerOptions.find((opt) => String(opt.countyRegion || '').toUpperCase() === selectedRegion)
-    if (option) activateCountyFromOption(option)
+    if (/^US-[A-Z]{2}$/.test(selectedRegion)) {
+      void loadStateNotables(selectedRegion)
+    } else {
+      const option = countyPickerOptions.find((opt) => String(opt.countyRegion || '').toUpperCase() === selectedRegion)
+      if (option) activateCountyFromOption(option)
+    }
   }
   searchPopover?.setAttribute('hidden', 'hidden')
 })
@@ -2767,6 +2780,9 @@ countyPickerList?.addEventListener('click', (event) => {
 })
 
 document.querySelector('.stats-left')?.addEventListener('click', (e) => {
+  if (e.target.closest('.stat-aba-pill') || e.target.closest('#statsRight')) {
+    return
+  }
   const pill = e.target.closest('.obs-stat')
   if (!pill) {
     selectedReviewFilter = null
@@ -2852,32 +2868,17 @@ notableRows.addEventListener('click', (event) => {
   const pts = speciesMarkers.get(species)
   if (!pts || pts.length === 0 || !map) return
   if (map) map.invalidateSize()
-  if (pts.length === 1) {
-    map.setView([pts[0].lat, pts[0].lng], Math.max(map.getZoom(), 13), { animate: true })
-    // Show same rich popup as canvas click
-    const pt = pts[0]
-    const locId = pt.item?.locId ? String(pt.item.locId) : null
-    const locName = pt.item?.locName ? escapeHtml(String(pt.item.locName)) : null
-    const abaBadge = renderAbaCodeBadge(pt.abaCode)
-    const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${pt.lat},${pt.lng}`)}`
-    const speciesEl = locId
-      ? `<a class="obs-popup-species" href="https://ebird.org/hotspot/${encodeURIComponent(locId)}" target="_blank" rel="noopener">${pt.safeSpecies}</a>`
-      : `<span class="obs-popup-species">${pt.safeSpecies}</span>`
-    const header = `<div class="obs-popup-header">${abaBadge}${speciesEl}<a class="obs-popup-mapit" href="${mapsUrl}" target="_blank" rel="noopener" title="Map it">&#x1F4CD;</a></div>`
-    const checklistItems = (pt.subIds || []).map((sid, i) => {
-      const label = formatObsDateTime(pt.subDates?.[i])
-      return `<li><a href="https://ebird.org/checklist/${encodeURIComponent(sid)}" target="_blank" rel="noopener">${escapeHtml(label)}</a></li>`
-    })
-    const checklistSection = checklistItems.length
-      ? `<ul class="obs-popup-checklist">${checklistItems.join('')}</ul>`
-      : ''
-    const html = `<div class="obs-popup-inner">${header}${checklistSection}</div>`
-    if (!fastCanvasPopup) fastCanvasPopup = L.popup({ maxWidth: 220, className: 'obs-popup' })
-    fastCanvasPopup.setLatLng([pt.lat, pt.lng]).setContent(html).openOn(map)
+  const targetPt = pickBestSpeciesPoint(pts)
+  if (pts.length === 1 && targetPt) {
+    map.setView([targetPt.lat, targetPt.lng], Math.max(map.getZoom(), 13), { animate: true })
+    openObservationPopup(targetPt)
   } else {
     const lats = pts.map((p) => p.lat)
     const lngs = pts.map((p) => p.lng)
     map.fitBounds(L.latLngBounds([Math.min(...lats), Math.min(...lngs)], [Math.max(...lats), Math.max(...lngs)]), { padding: [40, 40], maxZoom: 13, animate: true })
+    if (targetPt) {
+      window.setTimeout(() => openObservationPopup(targetPt), 120)
+    }
   }
 })
 
