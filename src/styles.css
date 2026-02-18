@@ -7,7 +7,7 @@
   --brand: #0c1b50;
   --accent: #009688;
   --border: rgba(15, 23, 42, 0.12);
-  --bottom-menu-height: 3.2rem;
+  --bottom-menu-height: 2.6rem;
 }
 
 * {
@@ -40,15 +40,43 @@ body {
 .app-header {
   background: var(--brand);
   color: #f8fafc;
-  padding: 0.85rem 1rem;
+  padding: 0.65rem 0.7rem 0.55rem;
   border-bottom: 1px solid rgba(255, 255, 255, 0.18);
   position: relative;
 }
 
 .app-title {
   margin: 0;
-  font-size: 1.1rem;
+  font-size: 1rem;
   font-weight: 700;
+}
+
+.top-menu {
+  display: grid;
+  grid-template-columns: 1fr 0.78fr;
+  gap: 0.4rem;
+  margin-top: 0.45rem;
+}
+
+.top-menu-item {
+  display: grid;
+  gap: 0.12rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: rgba(248, 250, 252, 0.92);
+}
+
+.top-menu-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background: #f8fafc;
+  color: #0f172a;
+  border: 1px solid rgba(148, 163, 184, 0.5);
+  border-radius: 0.48rem;
+  padding: 0.28rem 0.42rem;
+  font-size: 0.74rem;
+  font-weight: 700;
+  min-width: 0;
 }
 
 .app-main {
@@ -363,6 +391,10 @@ body {
   display: none;
 }
 
+.status-popover.status-hidden {
+  display: none !important;
+}
+
 .status-popover.open {
   display: block;
 }
@@ -383,14 +415,14 @@ body {
 }
 
 .bottom-menu {
-  background: #f1f5f9;
+  background: var(--brand);
   border: 1px solid var(--border);
   border-radius: 0;
   border-left: 0;
   border-right: 0;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  padding: 0.2rem;
+  padding: 0.12rem 0.2rem;
   position: fixed;
   left: 0;
   right: 0;
@@ -402,16 +434,16 @@ body {
 .menu-btn {
   border: 0;
   border-radius: 0.55rem;
-  background: #e2e8f0;
-  color: var(--text);
+  background: #1d4ed8;
+  color: #ffffff;
   font-weight: 700;
-  padding: 0.48rem 0.3rem;
-  min-height: calc(var(--bottom-menu-height) - 0.4rem);
+  padding: 0.22rem 0.25rem;
+  min-height: calc(var(--bottom-menu-height) - 0.28rem);
 }
 
 .menu-btn.active {
-  background: var(--brand);
-  color: #f8fafc;
+  background: #1e40af;
+  color: #ffffff;
 }
 
 .icon-btn {
@@ -421,8 +453,86 @@ body {
 }
 
 .icon-btn svg {
-  width: 1.05rem;
-  height: 1.05rem;
+  width: 0.98rem;
+  height: 0.98rem;
+}
+
+.app-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1600;
+}
+
+.app-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.app-modal-panel {
+  position: absolute;
+  left: 0.7rem;
+  right: 0.7rem;
+  top: 15dvh;
+  background: #ffffff;
+  border-radius: 0.75rem;
+  border: 1px solid var(--border);
+  padding: 0.8rem;
+  display: grid;
+  gap: 0.45rem;
+  color: #0f172a;
+}
+
+.app-modal-panel h2 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.app-modal-panel p {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.menu-popover {
+  position: fixed;
+  left: 0.5rem;
+  right: 0.5rem;
+  bottom: calc(var(--bottom-menu-height) + env(safe-area-inset-bottom) + 0.28rem);
+  z-index: 1550;
+}
+
+.menu-popover-card {
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.2);
+  padding: 0.58rem;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.menu-popover-title {
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.menu-popover-field {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.menu-popover-field > span {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #334155;
+}
+
+.menu-popover-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.35rem;
 }
 
 .panel {
