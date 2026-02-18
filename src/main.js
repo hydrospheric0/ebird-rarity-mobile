@@ -12,7 +12,6 @@ app.innerHTML = `
   <div id="appShell" class="app-shell">
     <header class="app-header">
       <h1 class="app-title">eBird Rarities</h1>
-      <span class="header-sep" aria-hidden="true">}</span>
 
       <div class="top-menu" aria-label="Top menu">
         <select id="headerCountySelect" class="top-menu-select" aria-label="County">
@@ -90,7 +89,6 @@ app.innerHTML = `
               <span id="statPending" class="obs-stat obs-stat-pending" data-label="Pending" tabindex="0" role="button" title="Pending">—</span>
               <div id="statsRight" class="stats-right"></div>
             </div>
-              <span id="mapCountyLabel" class="obs-stat-county-label" aria-live="polite" hidden></span>
           </div>
           <div id="countyPicker" class="county-picker" hidden>
             <div class="county-picker-title">Counties</div>

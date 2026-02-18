@@ -59,14 +59,6 @@ body {
   min-width: 0;
 }
 
-.header-sep {
-  font-size: 0.88rem;
-  font-weight: 700;
-  color: rgba(248, 250, 252, 0.9);
-  line-height: 1;
-  flex: 0 0 auto;
-}
-
 .top-menu {
   display: flex;
   align-items: center;
@@ -441,7 +433,7 @@ body {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 0.18rem;
-  padding: 0.12rem 0.2rem;
+  padding: 0.08rem 0.16rem 0.04rem;
   position: fixed;
   left: 0;
   right: 0;
@@ -456,7 +448,7 @@ body {
   background: #374151;
   color: #ffffff;
   font-weight: 700;
-  padding: 0.17rem 0.2rem;
+  padding: 0.14rem 0.18rem;
   min-height: calc(var(--bottom-menu-height) - 0.5rem);
 }
 
