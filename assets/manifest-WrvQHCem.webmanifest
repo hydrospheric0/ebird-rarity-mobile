@@ -1,6 +1,6 @@
 {
-  "name": "eBird Rarity Mobile",
-  "short_name": "eBird Rare",
+  "name": "eBird Rarities",
+  "short_name": "Rarities",
   "description": "Standalone mobile adaptation for eBird rarity mapping",
   "start_url": "./",
   "display": "standalone",
