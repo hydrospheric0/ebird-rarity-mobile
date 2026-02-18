@@ -18,10 +18,10 @@ app.innerHTML = `
           <option value="">Loading…</option>
         </select>
         <select id="headerDaysBackSelect" class="top-menu-select" aria-label="Days back">
-          <option value="1">1</option>
-          <option value="3">3</option>
-          <option value="7" selected>7</option>
-          <option value="14">14</option>
+          <option value="1">1 day</option>
+          <option value="3">3 days</option>
+          <option value="7" selected>7 days</option>
+          <option value="14">14 days</option>
         </select>
       </div>
 
@@ -84,7 +84,6 @@ app.innerHTML = `
         <section class="card table-card">
           <div class="obs-stats-bar">
             <div class="stats-left">
-              <span id="statTotal" class="obs-stat obs-stat-total" data-label="Total species" tabindex="0" role="button" title="Total species">—</span>
               <span id="statConfirmed" class="obs-stat obs-stat-confirmed" data-label="Confirmed" tabindex="0" role="button" title="Confirmed">—</span>
               <span id="statPending" class="obs-stat obs-stat-pending" data-label="Pending" tabindex="0" role="button" title="Pending">—</span>
               <div id="statsRight" class="stats-right"></div>
@@ -175,10 +174,10 @@ app.innerHTML = `
         <label class="menu-popover-field" for="searchDaysBackSelect">
           <span>Days Back:</span>
           <select id="searchDaysBackSelect" class="top-menu-select" aria-label="Search days back">
-            <option value="1">1</option>
-            <option value="3">3</option>
-            <option value="7" selected>7</option>
-            <option value="14">14</option>
+            <option value="1">1 day</option>
+            <option value="3">3 days</option>
+            <option value="7" selected>7 days</option>
+            <option value="14">14 days</option>
           </select>
         </label>
         <div class="menu-popover-actions">
@@ -731,7 +730,7 @@ function updateCountyDots() {
 
     dot.on('click', (e) => {
       L.DomEvent.stopPropagation(e)
-      loadNeighborCounty(opt.lat, opt.lng, opt.countyRegion, opt.countyName)
+      activateCountyFromOption(opt)
     })
 
     countyDotLayerRef.addLayer(dot)
@@ -836,6 +835,26 @@ function refreshHeaderCountyOptions() {
   })
   const selectedIndex = options.findIndex((opt) => String(opt.countyRegion || '').toUpperCase() === activeRegion)
   headerCountySelect.selectedIndex = selectedIndex >= 0 ? selectedIndex : 0
+}
+
+function switchToCountyOption(option) {
+  if (!option || option.isActive) return
+  void loadNeighborCounty(option.lat, option.lng, option.countyRegion, option.countyName)
+}
+
+function activateCountyFromOption(option) {
+  if (!option) return
+  const region = String(option.countyRegion || '').toUpperCase()
+  if (!region) return
+
+  if (headerCountySelect) {
+    const headerIndex = countyPickerOptions.findIndex((opt) => String(opt.countyRegion || '').toUpperCase() === region)
+    if (headerIndex >= 0) {
+      headerCountySelect.selectedIndex = headerIndex
+    }
+  }
+  const resolvedOption = countyPickerOptions.find((opt) => String(opt.countyRegion || '').toUpperCase() === region) || option
+  switchToCountyOption(resolvedOption)
 }
 
 function refreshSearchRegionOptions() {
@@ -1466,7 +1485,7 @@ function drawCountyOverlay(geojson) {
         layer.on({
           click: (e) => {
             L.DomEvent.stopPropagation(e)
-            loadNeighborCounty(e.latlng.lat, e.latlng.lng, region, name)
+            activateCountyFromOption({ lat: e.latlng.lat, lng: e.latlng.lng, countyRegion: region, countyName: name, isActive: false })
           },
           mouseover: () => layer.setStyle({ fillOpacity: 0.56, fillColor: '#94a3b8', color: '#475569', weight: 1 }),
           mouseout: () => {
@@ -1918,6 +1937,52 @@ function hitTestCanvas(containerPoint) {
   return best
 }
 
+function buildObservationPopupHtml(pt) {
+  if (!pt) return ''
+  const item = pt.item
+  const locId = item?.locId ? String(item.locId) : null
+  const abaBadge = renderAbaCodeBadge(pt.abaCode)
+  const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${pt.lat},${pt.lng}`)}`
+  const speciesEl = locId
+    ? `<a class="obs-popup-species" href="https://ebird.org/hotspot/${encodeURIComponent(locId)}" target="_blank" rel="noopener">${pt.safeSpecies}</a>`
+    : `<span class="obs-popup-species">${pt.safeSpecies}</span>`
+  const header = `<div class="obs-popup-header">${abaBadge}${speciesEl}<a class="obs-popup-mapit" href="${mapsUrl}" target="_blank" rel="noopener" title="Map it">&#x1F4CD;</a></div>`
+
+  const checklistItems = (pt.subIds || []).map((sid, i) => {
+    const label = formatObsDateTime(pt.subDates?.[i])
+    return `<li><a href="https://ebird.org/checklist/${encodeURIComponent(sid)}" target="_blank" rel="noopener">${escapeHtml(label)}</a></li>`
+  })
+  const checklistSection = checklistItems.length
+    ? `<ul class="obs-popup-checklist">${checklistItems.join('')}</ul>`
+    : ''
+
+  return `<div class="obs-popup-inner">${header}${checklistSection}</div>`
+}
+
+function openObservationPopup(pt) {
+  if (!map || !pt) return
+  const html = buildObservationPopupHtml(pt)
+  if (!html) return
+  if (!fastCanvasPopup) fastCanvasPopup = L.popup({ maxWidth: 180, className: 'obs-popup' })
+  fastCanvasPopup.setLatLng([pt.lat, pt.lng]).setContent(html).openOn(map)
+}
+
+function pickBestSpeciesPoint(points) {
+  if (!Array.isArray(points) || points.length === 0) return null
+  if (points.length === 1) return points[0]
+  const toMs = (pt) => {
+    const list = Array.isArray(pt?.subDates) ? pt.subDates : []
+    let best = 0
+    list.forEach((raw) => {
+      const parsed = parseObsDate(raw)
+      const ms = parsed ? parsed.getTime() : 0
+      if (ms > best) best = ms
+    })
+    return best
+  }
+  return points.reduce((best, current) => (toMs(current) > toMs(best) ? current : best), points[0])
+}
+
 // Install a single map click handler once
 let _canvasClickInstalled = false
 function ensureCanvasClickHandler() {
@@ -1934,31 +1999,7 @@ function ensureCanvasClickHandler() {
       return
     }
     e.stopPropagation()
-
-    const item = pt.item
-    const locId = item?.locId ? String(item.locId) : null
-    const locName = item?.locName ? escapeHtml(String(item.locName)) : null
-
-    // ABA badge + species header (species links to hotspot if available) + map-it pin
-    const abaBadge = renderAbaCodeBadge(pt.abaCode)
-    const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${pt.lat},${pt.lng}`)}`
-    const speciesEl = locId
-      ? `<a class="obs-popup-species" href="https://ebird.org/hotspot/${encodeURIComponent(locId)}" target="_blank" rel="noopener">${pt.safeSpecies}</a>`
-      : `<span class="obs-popup-species">${pt.safeSpecies}</span>`
-    const header = `<div class="obs-popup-header">${abaBadge}${speciesEl}<a class="obs-popup-mapit" href="${mapsUrl}" target="_blank" rel="noopener" title="Map it">&#x1F4CD;</a></div>`
-
-    // Checklists — bulleted list, link text = date+time
-    const checklistItems = (pt.subIds || []).map((sid, i) => {
-      const label = formatObsDateTime(pt.subDates?.[i])
-      return `<li><a href="https://ebird.org/checklist/${encodeURIComponent(sid)}" target="_blank" rel="noopener">${escapeHtml(label)}</a></li>`
-    })
-    const checklistSection = checklistItems.length
-      ? `<ul class="obs-popup-checklist">${checklistItems.join('')}</ul>`
-      : ''
-
-    const html = `<div class="obs-popup-inner">${header}${checklistSection}</div>`
-    if (!fastCanvasPopup) fastCanvasPopup = L.popup({ maxWidth: 220, className: 'obs-popup' })
-    fastCanvasPopup.setLatLng([pt.lat, pt.lng]).setContent(html).openOn(map)
+    openObservationPopup(pt)
   })
 }
 // ---------------------------------------------------------------------------
@@ -2564,8 +2605,7 @@ headerCountySelect?.addEventListener('change', (event) => {
     if (!countyRegion) return
     option = countyPickerOptions.find((opt) => String(opt.countyRegion || '').toUpperCase() === countyRegion)
   }
-  if (!option || option.isActive) return
-  void loadNeighborCounty(option.lat, option.lng, option.countyRegion, option.countyName)
+  switchToCountyOption(option)
 })
 filterDaysBackInput?.addEventListener('input', (event) => {
   filterDaysBack = Number(event.target.value) || 7
@@ -2599,9 +2639,7 @@ searchApplyBtn?.addEventListener('click', () => {
   applyActiveFiltersAndRender({ fitToObservations: true })
   if (selectedRegion) {
     const option = countyPickerOptions.find((opt) => String(opt.countyRegion || '').toUpperCase() === selectedRegion)
-    if (option && !option.isActive) {
-      void loadNeighborCounty(option.lat, option.lng, option.countyRegion, option.countyName)
-    }
+    if (option) activateCountyFromOption(option)
   }
   searchPopover?.setAttribute('hidden', 'hidden')
 })
@@ -2661,13 +2699,17 @@ countyPickerList?.addEventListener('click', (event) => {
   const option = countyPickerOptions[index]
   if (!option) return
   closeCountyPicker()
-  if (option.isActive) return
-  void loadNeighborCounty(option.lat, option.lng, option.countyRegion, option.countyName)
+  activateCountyFromOption(option)
 })
 
 document.querySelector('.stats-left')?.addEventListener('click', (e) => {
   const pill = e.target.closest('.obs-stat')
-  if (!pill) return
+  if (!pill) {
+    selectedReviewFilter = null
+    selectedAbaCode = null
+    applyActiveFiltersAndRender()
+    return
+  }
   if (pill.id === 'statConfirmed') {
     selectedReviewFilter = selectedReviewFilter === 'confirmed' ? null : 'confirmed'
     applyActiveFiltersAndRender()
@@ -2677,11 +2719,6 @@ document.querySelector('.stats-left')?.addEventListener('click', (e) => {
     selectedReviewFilter = selectedReviewFilter === 'pending' ? null : 'pending'
     applyActiveFiltersAndRender()
     return
-  }
-  if (pill.id === 'statTotal') {
-    selectedReviewFilter = null
-    selectedAbaCode = null
-    applyActiveFiltersAndRender()
   }
 })
 

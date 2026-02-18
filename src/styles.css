@@ -81,7 +81,7 @@ body {
 }
 
 #headerCountySelect {
-  width: min(42vw, 10.5rem);
+  width: min(34vw, 8.7rem);
 }
 
 #headerDaysBackSelect {
@@ -723,10 +723,10 @@ body {
 .sort-icon { font-size: 0.7em; opacity: 0.7; }
 
 .notable-table .col-status {
-  width: 0.7rem;
-  text-align: center;
-  padding-left: 0.15rem;
-  padding-right: 0.1rem;
+  width: 0.85rem;
+  text-align: right;
+  padding-left: 0.1rem;
+  padding-right: 0.08rem;
 }
 
 .notable-table .col-date {
@@ -811,7 +811,7 @@ tr.row-highlighted {
 
 .status-dot {
   display: inline-block;
-  width: 5px;
+  width: 7px;
   height: 12px;
   border-radius: 2px;
   border: 1px solid rgba(15, 23, 42, 0.2);
