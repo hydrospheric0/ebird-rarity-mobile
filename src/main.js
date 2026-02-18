@@ -1412,6 +1412,24 @@ function renderYoloCodeBadge(species, abaCode) {
   return `<span class="yolo-code-badge yolo-code-${yCode}${marker}" title="Yolo County code ${yCode}${diverges ? ' (rarer locally)' : ''}${noteSuffix}">${yCode}</span>`
 }
 
+function statusCodeClassSuffix(code) {
+  return String(code || '').toLowerCase().replace(/[^a-z0-9]+/g, '-')
+}
+
+function renderSpeciesStatusBullets(species) {
+  const info = getYoloSpeciesInfo(species)
+  if (!info) return ''
+  const uniqueCodes = Array.from(new Set([info.statusCode, info.avibaseStatusCode].filter(Boolean)))
+  if (!uniqueCodes.length) return ''
+  return uniqueCodes
+    .map((code) => {
+      const safeCode = escapeHtml(code)
+      const cls = statusCodeClassSuffix(code)
+      return `<span class="species-status-bullet status-code-${cls}" title="Reference status ${safeCode}">${safeCode}</span>`
+    })
+    .join('')
+}
+
 function isConfirmedObservation(item) {
   if (item && typeof item.confirmedAny === 'boolean') return item.confirmedAny
   return Number(item?.obsReviewed) === 1 && Number(item?.obsValid) === 1
@@ -1547,6 +1565,7 @@ function applySortAndRender() {
     const firstBubble = renderDateBubble(formatShortDate(item.first), getDateBubbleClass('first', item.first, item.last))
     const abaBadge = renderAbaCodeBadge(item.abaCode)
     const yoloBadge = isYolo ? renderYoloCodeBadge(item.species, item.abaCode) : ''
+    const statusBullets = isYolo ? renderSpeciesStatusBullets(item.species) : ''
     const statusDot = renderStatusDot(Boolean(item.confirmedAny))
     const isChecked = !hiddenSpecies.has(item.species)
     const pinHtml = (item.lat != null && item.lng != null)
@@ -1556,7 +1575,7 @@ function applySortAndRender() {
     const safeSpecies = escapeHtml(item.species)
     row.dataset.species = item.species
     row.innerHTML = `
-      <td><div class="species-cell">${abaBadge}${yoloBadge}<button type="button" class="species-btn" data-species="${safeSpecies}">${safeSpecies}</button></div></td>
+      <td><div class="species-cell">${abaBadge}${yoloBadge}${statusBullets}<button type="button" class="species-btn" data-species="${safeSpecies}">${safeSpecies}</button></div></td>
       <td class="col-status">${statusDot}</td>
       <td>${lastBubble}</td>
       <td>${firstBubble}</td>

@@ -10,12 +10,14 @@
     "yoloMismatchesCount": 0
   },
   "statusCodes": {
-    "CBRCreview": "CBR",
-    "Introduced": "INT"
+    "CBRCreview": "CBRC",
+    "Introduced": "INT",
+    "Reintroduction": "REI"
   },
   "avibaseStatusCodes": {
     "Rare/Accidental": "RA",
-    "Introduced species": "INT"
+    "Introduced species": "INT",
+    "Uncertain origin": "UNK"
   },
   "species": {
     "Abert's Towhee": {
