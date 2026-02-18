@@ -1926,7 +1926,17 @@ async function loadCountyNotables(latitude, longitude, countyRegion = null, requ
     const primaryObs = Array.isArray(primaryResult?.observations) ? primaryResult.observations : []
     const fallbackObs = Array.isArray(fallbackResult?.observations) ? fallbackResult.observations : []
 
-    if (primaryObs.length >= fallbackObs.length && primaryObs.length > 0) {
+    if (countyRegion) {
+      if (primaryResult) {
+        result = primaryResult
+        observations = primaryObs
+        strategy = primaryResult?.sourceStrategy || 'county-region'
+      } else if (fallbackResult) {
+        result = fallbackResult
+        observations = fallbackObs
+        strategy = fallbackResult?.sourceStrategy || 'county-fallback'
+      }
+    } else if (primaryObs.length >= fallbackObs.length && primaryObs.length > 0) {
       result = primaryResult
       observations = primaryObs
       strategy = primaryResult?.sourceStrategy || 'county-region'
@@ -1972,7 +1982,7 @@ async function loadCountyNotables(latitude, longitude, countyRegion = null, requ
     const filteredObs = activeCountyCode
       ? observations.filter((item) => !item.subnational2Code || String(item.subnational2Code).toUpperCase() === activeCountyCode)
       : observations
-    const displayObs = filteredObs.length > 0 ? filteredObs : observations
+    const displayObs = activeCountyCode ? filteredObs : observations
     currentRawObservations = displayObs
     currentCountyName = result?.countyName || null
     currentCountyRegion = result?.countyRegion || countyRegion || null
