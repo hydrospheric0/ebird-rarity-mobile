@@ -683,11 +683,18 @@ body {
   color: #fff;
   white-space: nowrap;
   cursor: pointer;
+  opacity: 0.78;
   transition: padding 0.15s;
 }
 .stat-aba-pill.obs-stat-expanded {
   padding: 0.08rem 0.6rem;
   font-size: 0.65rem;
+}
+.stat-aba-pill.is-active {
+  opacity: 1;
+  outline: 2px solid #0f172a;
+  outline-offset: 1px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.85) inset;
 }
 
 .table-card .row,

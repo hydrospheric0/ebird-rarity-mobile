@@ -164,8 +164,8 @@ app.innerHTML = `
       <div class="menu-popover-card" role="dialog" aria-modal="true" aria-labelledby="searchMenuTitle">
         <div id="searchMenuTitle" class="menu-popover-title">Search</div>
         <label class="menu-popover-field" for="searchRegionSelect">
-          <span>Region:</span>
-          <select id="searchRegionSelect" class="top-menu-select" aria-label="Search region"></select>
+          <span>State:</span>
+          <select id="searchRegionSelect" class="top-menu-select" aria-label="Search state"></select>
         </label>
         <label class="menu-popover-field" for="searchSpeciesSelect">
           <span>Species:</span>
@@ -292,6 +292,8 @@ let abaCodePickerOptions = []
 let lastMapRenderSignature = ''
 let latestMapRenderId = 0
 const countySummaryByRegion = new Map()
+const lastGoodObservationsByRegion = new Map()
+let lastGoodObservationSnapshot = null
 
 // ---------------------------------------------------------------------------
 // Lightweight render-pipeline profiling
@@ -345,6 +347,57 @@ const mapLoadState = {
   observations: false,
 }
 
+const LOWER_48_STATES = [
+  { code: 'US-AL', name: 'Alabama' },
+  { code: 'US-AZ', name: 'Arizona' },
+  { code: 'US-AR', name: 'Arkansas' },
+  { code: 'US-CA', name: 'California' },
+  { code: 'US-CO', name: 'Colorado' },
+  { code: 'US-CT', name: 'Connecticut' },
+  { code: 'US-DE', name: 'Delaware' },
+  { code: 'US-FL', name: 'Florida' },
+  { code: 'US-GA', name: 'Georgia' },
+  { code: 'US-ID', name: 'Idaho' },
+  { code: 'US-IL', name: 'Illinois' },
+  { code: 'US-IN', name: 'Indiana' },
+  { code: 'US-IA', name: 'Iowa' },
+  { code: 'US-KS', name: 'Kansas' },
+  { code: 'US-KY', name: 'Kentucky' },
+  { code: 'US-LA', name: 'Louisiana' },
+  { code: 'US-ME', name: 'Maine' },
+  { code: 'US-MD', name: 'Maryland' },
+  { code: 'US-MA', name: 'Massachusetts' },
+  { code: 'US-MI', name: 'Michigan' },
+  { code: 'US-MN', name: 'Minnesota' },
+  { code: 'US-MS', name: 'Mississippi' },
+  { code: 'US-MO', name: 'Missouri' },
+  { code: 'US-MT', name: 'Montana' },
+  { code: 'US-NE', name: 'Nebraska' },
+  { code: 'US-NV', name: 'Nevada' },
+  { code: 'US-NH', name: 'New Hampshire' },
+  { code: 'US-NJ', name: 'New Jersey' },
+  { code: 'US-NM', name: 'New Mexico' },
+  { code: 'US-NY', name: 'New York' },
+  { code: 'US-NC', name: 'North Carolina' },
+  { code: 'US-ND', name: 'North Dakota' },
+  { code: 'US-OH', name: 'Ohio' },
+  { code: 'US-OK', name: 'Oklahoma' },
+  { code: 'US-OR', name: 'Oregon' },
+  { code: 'US-PA', name: 'Pennsylvania' },
+  { code: 'US-RI', name: 'Rhode Island' },
+  { code: 'US-SC', name: 'South Carolina' },
+  { code: 'US-SD', name: 'South Dakota' },
+  { code: 'US-TN', name: 'Tennessee' },
+  { code: 'US-TX', name: 'Texas' },
+  { code: 'US-UT', name: 'Utah' },
+  { code: 'US-VT', name: 'Vermont' },
+  { code: 'US-VA', name: 'Virginia' },
+  { code: 'US-WA', name: 'Washington' },
+  { code: 'US-WV', name: 'West Virginia' },
+  { code: 'US-WI', name: 'Wisconsin' },
+  { code: 'US-WY', name: 'Wyoming' },
+]
+
 function setMapLoading(visible, text = 'Loading map…') {
   if (visible) {
     mapLoading.classList.add('visible')
@@ -368,6 +421,28 @@ function markMapPartReady(part) {
   if (mapLoadState.location && mapLoadState.activeCounty && mapLoadState.stateMask && mapLoadState.observations) {
     setMapLoading(false)
   }
+}
+
+function rememberLastGoodObservations(observations, countyName, countyRegion, activeCountyCode) {
+  if (!Array.isArray(observations) || observations.length === 0) return
+  const payload = {
+    observations: observations.slice(),
+    countyName: countyName || null,
+    countyRegion: countyRegion || null,
+    activeCountyCode: String(activeCountyCode || countyRegion || '').toUpperCase(),
+    timestamp: Date.now(),
+  }
+  lastGoodObservationSnapshot = payload
+  const regionKey = String(payload.countyRegion || payload.activeCountyCode || '').toUpperCase()
+  if (regionKey) lastGoodObservationsByRegion.set(regionKey, payload)
+}
+
+function getRecoverySnapshot(targetCountyRegion = null) {
+  const regionKey = String(targetCountyRegion || '').toUpperCase()
+  if (regionKey && lastGoodObservationsByRegion.has(regionKey)) {
+    return lastGoodObservationsByRegion.get(regionKey)
+  }
+  return lastGoodObservationSnapshot
 }
 
 function nextAnimationFrame() {
@@ -400,7 +475,22 @@ function cutoffDateForDaysBack(daysBack) {
 function getAbaCodeNumber(item) {
   const rawCode = item?.abaCode ?? item?.abaRarityCode
   const code = Number(rawCode)
-  return Number.isFinite(code) ? code : null
+  if (!Number.isFinite(code)) return null
+  const rounded = Math.round(code)
+  return rounded >= 1 && rounded <= 6 ? rounded : null
+}
+
+function matchesAbaSelection(item, abaMinValue, selectedCode) {
+  const code = getAbaCodeNumber(item)
+  const selected = Number(selectedCode)
+  if (selectedCode === 0 || selected === 0) return !Number.isFinite(code)
+  if (Number.isFinite(selected)) {
+    const normalized = Math.round(selected)
+    return Number.isFinite(code) && code === normalized
+  }
+  if (!Number.isFinite(code)) return false
+  const minCode = Math.max(1, Number(abaMinValue) || 1)
+  return code >= minCode
 }
 
 function applyActiveFiltersAndRender(options = {}) {
@@ -422,18 +512,13 @@ function applyActiveFiltersAndRender(options = {}) {
   const filteredBySpecies = selectedSpecies
     ? filteredByStatus.filter((item) => String(item?.comName || '') === selectedSpecies)
     : filteredByStatus
-  const abaPillSource = filteredBySpecies.filter((item) => {
-    const code = getAbaCodeNumber(item)
-    if (!Number.isFinite(code)) return false
-    return code >= abaMin
-  })
-  const filtered = filteredBySpecies.filter((item) => {
-    const code = getAbaCodeNumber(item)
-    if (selectedAbaCode === 0) return !Number.isFinite(code)
-    if (Number.isFinite(selectedAbaCode)) return Number.isFinite(code) && code === selectedAbaCode
-    if (!Number.isFinite(code)) return false
-    return code >= abaMin
-  })
+  const filtered = filteredBySpecies.filter((item) => matchesAbaSelection(item, abaMin, selectedAbaCode))
+  const abaPillSource = (selectedAbaCode === 0 || Number.isFinite(Number(selectedAbaCode)))
+    ? filtered
+    : filteredBySpecies.filter((item) => {
+      const code = getAbaCodeNumber(item)
+      return Number.isFinite(code) && code >= abaMin
+    })
   refreshSearchSpeciesOptions(filteredByDays)
   renderNotableTable(filtered, currentCountyName, currentCountyRegion, abaPillSource)
   if (renderMap) {
@@ -453,14 +538,17 @@ function setPillExpandedLabel(pill, prefix) {
 }
 
 function syncFilterPillUi() {
-  setPillExpandedLabel(statConfirmed, 'Confirmed')
-  setPillExpandedLabel(statPending, 'Pending')
+  setPillExpandedLabel(statConfirmed, '✓')
+  setPillExpandedLabel(statPending, '?')
   const abaPills = document.querySelectorAll('#statsRight .stat-aba-pill')
   abaPills.forEach((pill) => {
     const code = Number(pill.dataset.code)
     if (!pill.dataset.short || pill.textContent.includes('ABA')) pill.dataset.short = pill.textContent.replace(/^.*?:\s*/, '').trim()
     if (pill.dataset.short) pill.textContent = `ABA ${code}: ${pill.dataset.short}`
     pill.classList.add('obs-stat-expanded')
+    const isActive = Number.isFinite(Number(selectedAbaCode)) && Number(selectedAbaCode) === code
+    pill.classList.toggle('is-active', isActive)
+    pill.setAttribute('aria-pressed', String(isActive))
   })
 }
 
@@ -634,11 +722,11 @@ function formatCountySummary(summary) {
 
 function formatCountySummaryPills(summary) {
   if (!summary) return ''
-  const pills = []
+  const pills = [`<span class="county-pill county-pill-rarity" title="Total rarities">${summary.rarityCount}</span>`]
   for (let code = 1; code <= 6; code += 1) {
     const count = summary.abaCounts.get(code) || 0
     if (count > 0) {
-      pills.push(`<span class="stat-aba-pill aba-code-${code}" title="ABA ${code}: ${count}">${count}</span>`)
+      pills.push(`<span class="county-pill county-aba-pill aba-code-${code}" title="ABA ${code}: ${count}">${count}</span>`)
     }
   }
   return pills.join('')
@@ -688,6 +776,7 @@ const DOT_ABA_COLORS = {
 
 function updateCountyDots() {
   if (!map || !countyPickerOptions.length) return
+  const showCountyNames = map.getZoom() > 10
 
   if (!countyDotLayerRef) {
     countyDotLayerRef = L.layerGroup({ pane: 'countyDotPane' }).addTo(map)
@@ -712,24 +801,30 @@ function updateCountyDots() {
     const countText = rarityCount > 0 ? String(rarityCount) : ''
     const markerHtml = `
       <div class="county-dot-marker">
-        <span class="cdot-name">${escapeHtml(opt.countyName)}</span>
+        ${showCountyNames ? `<span class="cdot-name">${escapeHtml(opt.countyName)}</span>` : ''}
         <span class="cdot-circle" style="background:${dotColor}">${countText}</span>
       </div>
     `
+
+    const iconSize = showCountyNames ? [88, 38] : [28, 28]
+    const iconAnchor = showCountyNames ? [44, 22] : [14, 14]
 
     const dot = L.marker([opt.lat, opt.lng], {
       pane: 'countyDotPane',
       icon: L.divIcon({
         className: 'county-dot-icon',
         html: markerHtml,
-        iconSize: [88, 38],
-        iconAnchor: [44, 22],
+        iconSize,
+        iconAnchor,
       }),
       interactive: true,
     })
 
     dot.on('click', (e) => {
-      L.DomEvent.stopPropagation(e)
+      if (e?.originalEvent) {
+        L.DomEvent.stopPropagation(e.originalEvent)
+        L.DomEvent.preventDefault(e.originalEvent)
+      }
       activateCountyByRegion(opt.countyRegion, opt.lat, opt.lng, opt.countyName)
     })
 
@@ -838,7 +933,10 @@ function refreshHeaderCountyOptions() {
 }
 
 function switchToCountyOption(option) {
-  if (!option || option.isActive) return
+  if (!option) return
+  const optionRegion = String(option.countyRegion || '').toUpperCase()
+  const activeRegion = String(currentCountyRegion || '').toUpperCase()
+  if (optionRegion && optionRegion === activeRegion) return
   void loadNeighborCounty(option.lat, option.lng, option.countyRegion, option.countyName)
 }
 
@@ -885,20 +983,20 @@ function activateCountyFromOption(option) {
 
 function refreshSearchRegionOptions() {
   if (!searchRegionSelect) return
-  const options = countyPickerOptions
-  if (!Array.isArray(options) || options.length === 0) {
-    searchRegionSelect.innerHTML = '<option value="">Current</option>'
-    return
-  }
-  const currentRegion = (currentCountyRegion || '').toUpperCase()
-  const stateRegion = stateRegionFromCountyRegion(currentRegion)
+  const currentRegion = String(currentCountyRegion || '').toUpperCase()
+  const stateFromCurrent = /^US-[A-Z]{2}$/.test(currentRegion)
+    ? currentRegion
+    : stateRegionFromCountyRegion(currentRegion)
+  const existing = String(searchRegionSelect.value || '').toUpperCase()
+  const selectedState = LOWER_48_STATES.some((s) => s.code === existing)
+    ? existing
+    : (LOWER_48_STATES.some((s) => s.code === stateFromCurrent) ? stateFromCurrent : '')
+
   searchRegionSelect.innerHTML = [
-    '<option value="">Current</option>',
-    ...(stateRegion ? [`<option value="${escapeHtml(stateRegion)}">${escapeHtml(stateRegion)} (statewide)</option>`] : []),
-    ...options.map((opt) => {
-      const region = String(opt.countyRegion || '').toUpperCase()
-      const selected = region && region === currentRegion
-      return `<option value="${escapeHtml(region)}" ${selected ? 'selected' : ''}>${escapeHtml(opt.countyName)}</option>`
+    '<option value="">Select state…</option>',
+    ...LOWER_48_STATES.map((state) => {
+      const selected = selectedState && selectedState === state.code
+      return `<option value="${escapeHtml(state.code)}" ${selected ? 'selected' : ''}>${escapeHtml(state.name)}</option>`
     }),
   ].join('')
 }
@@ -969,13 +1067,13 @@ function updateStatPills(total, confirmed, pending) {
     statTotal.classList.add('obs-stat-expanded')
   }
   if (statConfirmed) {
-    statConfirmed.textContent = `Confirmed: ${confirmed}`
+    statConfirmed.textContent = `✓: ${confirmed}`
     statConfirmed.dataset.short = String(confirmed)
     statConfirmed.dataset.full = `Confirmed: ${confirmed}`
     statConfirmed.classList.add('obs-stat-expanded')
   }
   if (statPending) {
-    statPending.textContent = `Pending: ${pending}`
+    statPending.textContent = `?: ${pending}`
     statPending.dataset.short = String(pending)
     statPending.dataset.full = `Pending: ${pending}`
     statPending.classList.add('obs-stat-expanded')
@@ -1002,7 +1100,10 @@ function renderAbaStatPills(sorted) {
   }
   const html = orderedCodes
     .filter((c) => counts.has(c))
-    .map((c) => `<span class="stat-aba-pill aba-code-${c}" data-code="${c}" title="ABA code ${c}: ${counts.get(c)} species">${counts.get(c)}</span>`)
+    .map((c) => {
+      const isActive = selectedAbaCode === c
+      return `<span class="stat-aba-pill aba-code-${c}${isActive ? ' is-active' : ''}" data-code="${c}" tabindex="0" role="button" aria-pressed="${isActive ? 'true' : 'false'}" title="Filter ABA code ${c}: ${counts.get(c)} species">${counts.get(c)}</span>`
+    })
     .join('')
   statsRight.innerHTML = html
 }
@@ -1121,6 +1222,7 @@ function initializeMap() {
   map.on('zoomend', () => {
     const z = map.getZoom()
     if (!currentCountyRegion) return
+    updateCountyDots()
     if (z > 9) {
       applyHiResCountyOutline(currentCountyRegion)
     } else if (latestCountyContextGeojson) {
@@ -1545,7 +1647,10 @@ function drawCountyOverlay(geojson) {
         const name = feature?.properties?.countyName || feature?.properties?.NAME || feature?.properties?.name || ''
         layer.on({
           click: (e) => {
-            L.DomEvent.stopPropagation(e)
+            if (e?.originalEvent) {
+              L.DomEvent.stopPropagation(e.originalEvent)
+              L.DomEvent.preventDefault(e.originalEvent)
+            }
             flashNeighborLayer(layer)
             activateCountyByRegion(region, e.latlng.lat, e.latlng.lng, name)
           },
@@ -1742,6 +1847,7 @@ function buildGroupedRowsFromObservations(observations) {
     const species = item.comName || ''
     const state = getItemStateAbbrev(item)
     const county = getItemCountyName(item)
+    const countyRegion = String(item?.subnational2Code || '').toUpperCase() || null
     const key = `${species}::${state}::${county}`
     const date = parseObsDate(item.obsDt)
     const rawCode = item.abaCode ?? item.abaRarityCode
@@ -1755,6 +1861,7 @@ function buildGroupedRowsFromObservations(observations) {
         species,
         state,
         county,
+        countyRegion,
         count: 0,
         first: date,
         last: date,
@@ -1859,6 +1966,8 @@ function applySortAndRender() {
     const row = document.createElement('tr')
     const safeSpecies = escapeHtml(item.species)
     row.dataset.species = item.species
+    row.dataset.county = String(item.county || '')
+    row.dataset.countyRegion = String(item.countyRegion || '').toUpperCase()
     row.innerHTML = `
       <td><div class="species-cell">${abaBadge}${yoloBadge}${statusBullets}<button type="button" class="species-btn" data-species="${safeSpecies}">${safeSpecies}</button></div></td>
       <td class="col-status">${statusDot}</td>
@@ -1912,10 +2021,71 @@ const ABA_COLORS = {
 const ABA_DEFAULT_COLOR = { fill: '#4b5563', border: '#ffffff' }
 const MARKER_RADIUS = 9        // px, logical
 const HIT_RADIUS = 12          // px, slightly larger for touch
+const CLUSTER_ZOOM_THRESHOLD = 10
+const CLUSTER_GRID_PX = 44
 
 let fastCanvasOverlay = null   // L.Layer instance
-let fastCanvasData = []        // [{lat,lng,fill,border,species,safeSpecies,subId,item}]
+let fastCanvasData = []        // rendered points for current zoom (clustered or raw)
+let fastCanvasBaseData = []    // raw points before clustering
 let fastCanvasPopup = null     // single reused L.popup
+
+function buildClusteredCanvasData(baseData, mapInstance) {
+  if (!mapInstance) return Array.isArray(baseData) ? baseData : []
+  const source = Array.isArray(baseData) ? baseData : []
+  if (!source.length) return []
+  if (mapInstance.getZoom() > CLUSTER_ZOOM_THRESHOLD) return source
+
+  const buckets = new Map()
+  source.forEach((pt) => {
+    if (pt.hidden) return
+    const cp = mapInstance.latLngToContainerPoint([pt.lat, pt.lng])
+    const key = `${Math.round(cp.x / CLUSTER_GRID_PX)}:${Math.round(cp.y / CLUSTER_GRID_PX)}`
+    if (!buckets.has(key)) {
+      buckets.set(key, {
+        points: [],
+        latSum: 0,
+        lngSum: 0,
+        maxAbaCode: Number.isFinite(pt.abaCode) ? pt.abaCode : null,
+      })
+    }
+    const bucket = buckets.get(key)
+    bucket.points.push(pt)
+    bucket.latSum += pt.lat
+    bucket.lngSum += pt.lng
+    if (Number.isFinite(pt.abaCode) && (!Number.isFinite(bucket.maxAbaCode) || pt.abaCode > bucket.maxAbaCode)) {
+      bucket.maxAbaCode = pt.abaCode
+    }
+  })
+
+  const clustered = []
+  buckets.forEach((bucket) => {
+    if (bucket.points.length === 1) {
+      clustered.push(bucket.points[0])
+      return
+    }
+    const abaCode = Number.isFinite(bucket.maxAbaCode) ? bucket.maxAbaCode : null
+    const colors = ABA_COLORS[abaCode] || ABA_DEFAULT_COLOR
+    const count = bucket.points.length
+    clustered.push({
+      lat: bucket.latSum / count,
+      lng: bucket.lngSum / count,
+      fill: colors.fill,
+      border: colors.border,
+      species: `${count} observations`,
+      safeSpecies: escapeHtml(`${count} observations`),
+      abaCode,
+      subIds: [],
+      subDates: [],
+      item: bucket.points[0]?.item || null,
+      label: String(count),
+      hidden: false,
+      isCluster: true,
+      clusterCount: count,
+    })
+  })
+
+  return clustered
+}
 
 function buildFastCanvasOverlay() {
   const CanvasOverlay = L.Layer.extend({
@@ -1950,9 +2120,11 @@ function buildFastCanvasOverlay() {
       ctx.scale(dpr, dpr)
       ctx.clearRect(0, 0, size.x, size.y)
 
-      const r = MARKER_RADIUS
-      for (const pt of fastCanvasData) {
+      const drawData = buildClusteredCanvasData(fastCanvasBaseData, m)
+      fastCanvasData = drawData
+      for (const pt of drawData) {
         if (pt.hidden) continue
+        const r = pt.isCluster ? Math.min(17, MARKER_RADIUS + Math.floor(Math.log2((pt.clusterCount || 1) + 1)) * 2) : MARKER_RADIUS
         // Use layer-space coordinates so canvas positioning and point math
         // stay in the same reference frame during pan/zoom transforms.
         const lp = m.latLngToLayerPoint([pt.lat, pt.lng])
@@ -1965,8 +2137,19 @@ function buildFastCanvasOverlay() {
         ctx.lineWidth = 1.5
         ctx.strokeStyle = pt.border
         ctx.stroke()
+        if (pt.isCluster) {
+          const txt = String(pt.clusterCount || '')
+          ctx.font = '700 10px sans-serif'
+          ctx.textAlign = 'center'
+          ctx.textBaseline = 'middle'
+          ctx.fillStyle = '#ffffff'
+          ctx.fillText(txt, x, y)
+          continue
+        }
         if (pt.label) {
           ctx.font = '600 11px sans-serif'
+          ctx.textAlign = 'left'
+          ctx.textBaseline = 'alphabetic'
           const tx = x + r + 4
           const ty = y + 4
           const tw = ctx.measureText(pt.label).width
@@ -1986,7 +2169,6 @@ function buildFastCanvasOverlay() {
 
 function hitTestCanvas(containerPoint) {
   const m = map
-  const r2 = HIT_RADIUS * HIT_RADIUS
   let best = null
   let bestDist = Infinity
   for (const pt of fastCanvasData) {
@@ -1994,6 +2176,8 @@ function hitTestCanvas(containerPoint) {
     const cp = m.latLngToContainerPoint([pt.lat, pt.lng])
     const dx = cp.x - containerPoint.x
     const dy = cp.y - containerPoint.y
+    const hitRadius = pt.isCluster ? 18 : HIT_RADIUS
+    const r2 = hitRadius * hitRadius
     const d2 = dx * dx + dy * dy
     if (d2 <= r2 && d2 < bestDist) {
       best = pt
@@ -2060,12 +2244,21 @@ function ensureCanvasClickHandler() {
   _canvasClickInstalled = true
   // We listen on the map container directly so we get clicks through the canvas
   document.querySelector('#map')?.addEventListener('click', (e) => {
+    const target = e.target
+    if (target instanceof Element && target.closest('.leaflet-interactive, .county-dot-icon, .county-dot-marker')) {
+      return
+    }
     if (!map || fastCanvasData.length === 0) return
     const rect = map.getContainer().getBoundingClientRect()
     const cp = L.point(e.clientX - rect.left, e.clientY - rect.top)
     const pt = hitTestCanvas(cp)
     if (!pt) {
       if (fastCanvasPopup) { fastCanvasPopup.remove(); fastCanvasPopup = null }
+      return
+    }
+    if (pt.isCluster && map) {
+      const nextZoom = Math.max(map.getZoom() + 2, CLUSTER_ZOOM_THRESHOLD + 1)
+      map.setView([pt.lat, pt.lng], nextZoom, { animate: true })
       return
     }
     e.stopPropagation()
@@ -2142,6 +2335,7 @@ function renderNotablesOnMap(observations, activeCountyCode = '', fitToObservati
   if (renderId !== latestMapRenderId) { perfEnd('map'); return }
 
   // Swap in new data and redraw the single canvas layer
+  fastCanvasBaseData = nextData
   fastCanvasData = nextData
   speciesMarkers = nextSpeciesMap   // reuse same variable — callers key on species name
   hiddenSpecies = new Set()
@@ -2177,6 +2371,10 @@ function renderNotablesOnMap(observations, activeCountyCode = '', fitToObservati
 async function loadCountyNotables(latitude, longitude, countyRegion = null, requestId = null, countySwitchRequestId = null, allowStateFallback = false) {
   perfStart('fetch')
   const notablesLoadId = ++latestNotablesLoadId
+  const previousObservations = Array.isArray(currentRawObservations) ? currentRawObservations.slice() : []
+  const previousCountyNameState = currentCountyName
+  const previousCountyRegionState = currentCountyRegion
+  const previousActiveCountyCodeState = currentActiveCountyCode
   const previousCountText = notableCount.textContent
   const previousMetaText = notableMeta.textContent
   const previousRowsHtml = notableRows.innerHTML
@@ -2192,6 +2390,7 @@ async function loadCountyNotables(latitude, longitude, countyRegion = null, requ
     currentCountyName = cachedWarm?.countyName || null
     currentCountyRegion = cachedWarm?.countyRegion || countyRegion || null
     currentActiveCountyCode = (cachedWarm?.countyRegion || countyRegion || '').toUpperCase()
+    rememberLastGoodObservations(currentRawObservations, currentCountyName, currentCountyRegion, currentActiveCountyCode)
     // Show county name immediately from cache — don't wait for GeoJSON fetch
     if (mapCountyLabel && currentCountyName) {
       mapCountyLabel.textContent = currentCountyName
@@ -2260,7 +2459,15 @@ async function loadCountyNotables(latitude, longitude, countyRegion = null, requ
     const fallbackObs = Array.isArray(fallbackResult?.observations) ? fallbackResult.observations : []
 
     if (countyRegion) {
-      if (primaryResult) {
+      if (primaryResult && primaryObs.length > 0) {
+        result = primaryResult
+        observations = primaryObs
+        strategy = primaryResult?.sourceStrategy || 'county-region'
+      } else if (fallbackResult && fallbackObs.length > 0) {
+        result = fallbackResult
+        observations = fallbackObs
+        strategy = fallbackResult?.sourceStrategy || 'county-fallback'
+      } else if (primaryResult) {
         result = primaryResult
         observations = primaryObs
         strategy = primaryResult?.sourceStrategy || 'county-region'
@@ -2315,11 +2522,53 @@ async function loadCountyNotables(latitude, longitude, countyRegion = null, requ
     const filteredObs = activeCountyCode
       ? observations.filter((item) => !item.subnational2Code || String(item.subnational2Code).toUpperCase() === activeCountyCode)
       : observations
-    const displayObs = activeCountyCode ? filteredObs : observations
+    let displayObs = activeCountyCode ? filteredObs : observations
+    if (allowStateFallback && countyRegion && activeCountyCode && displayObs.length === 0) {
+      const stateRegion = stateRegionFromCountyRegion(activeCountyCode)
+      if (stateRegion) {
+        try {
+          const stateData = await fetchRegionRarities(stateRegion, 14)
+          const stateFiltered = Array.isArray(stateData)
+            ? stateData.filter((item) => String(item?.subnational2Code || '').toUpperCase() === activeCountyCode)
+            : []
+          if (stateFiltered.length > 0) {
+            displayObs = stateFiltered
+            strategy = 'state-filter-client'
+          }
+        } catch (stateFallbackError) {
+          console.warn('State fallback after county filter-empty failed:', stateFallbackError)
+        }
+      }
+    }
+    if (displayObs.length === 0) {
+      const recoveryTarget = activeCountyCode || countyRegion || previousCountyRegionState || null
+      const recovery = getRecoverySnapshot(recoveryTarget)
+      if (recovery && Array.isArray(recovery.observations) && recovery.observations.length > 0) {
+        displayObs = recovery.observations.slice()
+        strategy = `${strategy || 'county-region'}-recovered`
+        currentCountyName = recovery.countyName || currentCountyName || null
+        currentCountyRegion = recovery.countyRegion || countyRegion || currentCountyRegion || null
+        currentActiveCountyCode = String(recovery.activeCountyCode || currentActiveCountyCode || '').toUpperCase()
+      }
+    }
+
+    const resolvedCountyName = result?.countyName || currentCountyName || previousCountyNameState || null
+    const resolvedCountyRegion = result?.countyRegion || currentCountyRegion || countyRegion || previousCountyRegionState || null
+    const resolvedActiveCountyCode = String(activeCountyCode || currentActiveCountyCode || resolvedCountyRegion || previousActiveCountyCodeState || '').toUpperCase()
+
     currentRawObservations = displayObs
-    currentCountyName = result?.countyName || null
-    currentCountyRegion = result?.countyRegion || countyRegion || null
-    currentActiveCountyCode = activeCountyCode
+    currentCountyName = resolvedCountyName
+    currentCountyRegion = resolvedCountyRegion
+    currentActiveCountyCode = resolvedActiveCountyCode
+    if (displayObs.length > 0) {
+      rememberLastGoodObservations(displayObs, currentCountyName, currentCountyRegion, currentActiveCountyCode)
+    } else if (previousObservations.length > 0) {
+      currentRawObservations = previousObservations
+      currentCountyName = previousCountyNameState
+      currentCountyRegion = previousCountyRegionState
+      currentActiveCountyCode = previousActiveCountyCodeState
+      strategy = `${strategy || 'county-region'}-restored`
+    }
     // Show county name immediately when notables API responds — don't wait for map render
     if (mapCountyLabel && currentCountyName) {
       mapCountyLabel.textContent = currentCountyName
@@ -2329,7 +2578,7 @@ async function loadCountyNotables(latitude, longitude, countyRegion = null, requ
     const displayFiltered = applyActiveFiltersAndRender({ renderMap: false })
     perfEnd('fetch')
     perfStart('table')
-    setTableRenderStatus(`table-ok rows=${observations.length}`)
+    setTableRenderStatus(`table-ok rows=${currentRawObservations.length}`)
     perfEnd('table')
     await new Promise((resolve) => window.setTimeout(resolve, 0))
     if (isStaleNotablesLoad(notablesLoadId, requestId, countySwitchRequestId)) return
@@ -2364,6 +2613,7 @@ async function loadCountyNotables(latitude, longitude, countyRegion = null, requ
       currentCountyName = cached?.countyName || null
       currentCountyRegion = cached?.countyRegion || countyRegion || null
       currentActiveCountyCode = (cached?.countyRegion || countyRegion || '').toUpperCase()
+      rememberLastGoodObservations(currentRawObservations, currentCountyName, currentCountyRegion, currentActiveCountyCode)
       refreshCountyPickerSummaries()
       const cachedFiltered = applyActiveFiltersAndRender({ renderMap: false })
       await new Promise((resolve) => window.setTimeout(resolve, 0))
@@ -2373,6 +2623,24 @@ async function loadCountyNotables(latitude, longitude, countyRegion = null, requ
       maybeApplyHiResOnCountyLoad()
       notableMeta.textContent = `${notableMeta.textContent} · cached-fallback`
       setTableRenderStatus(`cache-ok rows=${cached.observations.length}`)
+      return
+    }
+
+    const recovery = getRecoverySnapshot(countyRegion || previousCountyRegionState || null)
+    if (recovery && Array.isArray(recovery.observations) && recovery.observations.length > 0) {
+      currentRawObservations = recovery.observations.slice()
+      currentCountyName = recovery.countyName || previousCountyNameState || null
+      currentCountyRegion = recovery.countyRegion || countyRegion || previousCountyRegionState || null
+      currentActiveCountyCode = String(recovery.activeCountyCode || previousActiveCountyCodeState || '').toUpperCase()
+      refreshCountyPickerSummaries()
+      const recoveredFiltered = applyActiveFiltersAndRender({ renderMap: false })
+      await new Promise((resolve) => window.setTimeout(resolve, 0))
+      if (isStaleNotablesLoad(notablesLoadId, requestId, countySwitchRequestId)) return
+      setMapLoading(true, 'Rendering map points…')
+      renderNotablesOnMap(recoveredFiltered, currentActiveCountyCode, true)
+      maybeApplyHiResOnCountyLoad()
+      notableMeta.textContent = `${notableMeta.textContent} · recovered`
+      setTableRenderStatus(`recover-ok rows=${recovery.observations.length}`)
       return
     }
 
@@ -2450,6 +2718,7 @@ async function loadStateNotables(stateRegion, requestId = null) {
     currentCountyName = stateRegion
     currentCountyRegion = stateRegion
     currentActiveCountyCode = ''
+    rememberLastGoodObservations(currentRawObservations, currentCountyName, currentCountyRegion, currentActiveCountyCode)
     applyActiveFiltersAndRender({ renderMap: true, fitToObservations: true })
     setMapLoading(false)
     markMapPartReady('observations')
@@ -2523,7 +2792,7 @@ async function loadNeighborCounty(lat, lng, countyRegion, countyName) {
     mapCountyLabel.textContent = label
     mapCountyLabel.removeAttribute('hidden')
   }
-  await loadCountyNotables(targetLat, targetLng, resolvedCountyRegion, null, countySwitchRequestId, false)
+  await loadCountyNotables(targetLat, targetLng, resolvedCountyRegion, null, countySwitchRequestId, true)
 }
 
 async function requestUserLocation(manualRetry = false) {
@@ -2668,6 +2937,18 @@ headerDaysBackSelect?.addEventListener('change', (event) => {
   updateFilterUi()
   applyActiveFiltersAndRender({ fitToObservations: true })
 })
+headerCountySelect?.addEventListener('pointerdown', (event) => {
+  if (!countyPickerOptions.length) return
+  event.preventDefault()
+  toggleCountyPicker()
+})
+headerCountySelect?.addEventListener('keydown', (event) => {
+  if (!countyPickerOptions.length) return
+  if (event.key === 'Enter' || event.key === ' ' || event.key === 'ArrowDown') {
+    event.preventDefault()
+    toggleCountyPicker()
+  }
+})
 headerCountySelect?.addEventListener('change', (event) => {
   const selectEl = event.target
   const selectedOptionEl = selectEl?.options?.[selectEl.selectedIndex] || null
@@ -2802,12 +3083,28 @@ document.querySelector('.stats-left')?.addEventListener('click', (e) => {
   }
 })
 
+function activateAbaPill(pill) {
+  if (!pill) return
+  const parsedCode = Number(pill.dataset.code)
+  if (!Number.isFinite(parsedCode)) return
+  const code = Math.round(parsedCode)
+  if (code < 1 || code > 6) return
+  selectedAbaCode = selectedAbaCode === code ? null : code
+  applyActiveFiltersAndRender()
+}
+
 document.querySelector('#statsRight')?.addEventListener('click', (e) => {
   const pill = e.target.closest('.stat-aba-pill')
+  activateAbaPill(pill)
+})
+
+document.querySelector('#statsRight')?.addEventListener('keydown', (e) => {
+  const pill = e.target.closest('.stat-aba-pill')
   if (!pill) return
-  const code = Number(pill.dataset.code)
-  selectedAbaCode = selectedAbaCode === code ? null : (Number.isFinite(code) ? code : null)
-  applyActiveFiltersAndRender()
+  if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault()
+    activateAbaPill(pill)
+  }
 })
 
 abaCodePickerList?.addEventListener('click', (event) => {
@@ -2817,7 +3114,10 @@ abaCodePickerList?.addEventListener('click', (event) => {
   const option = abaCodePickerOptions[index]
   if (!option) return
   if (option.value === 'all') selectedAbaCode = null
-  else selectedAbaCode = Number(option.value)
+  else {
+    const parsedCode = Number(option.value)
+    selectedAbaCode = Number.isFinite(parsedCode) ? Math.round(parsedCode) : null
+  }
   applyActiveFiltersAndRender()
   closeAbaCodePicker()
 })
@@ -2858,10 +3158,25 @@ notableRows.addEventListener('click', (event) => {
   if (!btn) return
   const species = btn.dataset.species
   if (!species) return
+  const row = btn.closest('tr')
+  const rowCountyRegion = String(row?.dataset?.countyRegion || '').toUpperCase()
+  const rowCountyName = String(row?.dataset?.county || '')
+  const activeRegion = String(currentCountyRegion || '').toUpperCase()
+  const isStateView = /^US-[A-Z]{2}$/.test(activeRegion)
+
+  if (isStateView && rowCountyRegion) {
+    selectedSpecies = species
+    const option = countyPickerOptions.find((opt) => String(opt.countyRegion || '').toUpperCase() === rowCountyRegion)
+    if (option) {
+      activateCountyFromOption(option)
+      return
+    }
+    activateCountyByRegion(rowCountyRegion, null, null, rowCountyName)
+    return
+  }
 
   // Highlight row
   notableRows.querySelectorAll('tr.row-highlighted').forEach((r) => r.classList.remove('row-highlighted'))
-  const row = btn.closest('tr')
   if (row) row.classList.add('row-highlighted')
 
   // Zoom map to point(s)
