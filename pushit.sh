@@ -15,6 +15,7 @@ set -euo pipefail
 REPO_URL="https://github.com/hydrospheric0/ebird-rarity-mobile.git"
 PAGES_BRANCH="gh-pages"
 SOURCE_BRANCH="main"
+DEFAULT_VITE_API_BASE_URL="https://ebird-rarity-mapper.bartwickel.workers.dev"
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
@@ -56,16 +57,8 @@ if [[ -z "$msg" ]]; then
 fi
 
 if [[ -z "${VITE_API_BASE_URL:-}" ]]; then
-  echo ""
-  echo "⚠️  Missing VITE_API_BASE_URL."
-  echo ""
-  echo "To prevent accidental deployments to the wrong Worker, this script requires"
-  echo "VITE_API_BASE_URL to be set explicitly for each production build."
-  echo ""
-  echo "Example:"
-  echo "  VITE_API_BASE_URL=https://<your-worker>.workers.dev ./pushit.sh --all \"Initial release\""
-  echo ""
-  exit 1
+  export VITE_API_BASE_URL="$DEFAULT_VITE_API_BASE_URL"
+  echo "ℹ️  VITE_API_BASE_URL not set. Using default: $VITE_API_BASE_URL"
 fi
 
 # ── 1. Ensure git repo exists ────────────────────────────────────────────────
