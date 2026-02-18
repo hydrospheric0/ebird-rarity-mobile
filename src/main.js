@@ -14,21 +14,15 @@ app.innerHTML = `
       <h1 class="app-title">eBird Rarities</h1>
 
       <div class="top-menu" aria-label="Top menu">
-        <label class="top-menu-item" for="headerCountySelect">
-          <span>County</span>
-          <select id="headerCountySelect" class="top-menu-select" aria-label="County">
-            <option value="">Loading…</option>
-          </select>
-        </label>
-        <label class="top-menu-item" for="headerDaysBackSelect">
-          <span>Days Back</span>
-          <select id="headerDaysBackSelect" class="top-menu-select" aria-label="Days back">
-            <option value="1">1</option>
-            <option value="3">3</option>
-            <option value="7" selected>7</option>
-            <option value="14">14</option>
-          </select>
-        </label>
+        <select id="headerCountySelect" class="top-menu-select" aria-label="County">
+          <option value="">Loading…</option>
+        </select>
+        <select id="headerDaysBackSelect" class="top-menu-select" aria-label="Days back">
+          <option value="1">1</option>
+          <option value="3">3</option>
+          <option value="7" selected>7</option>
+          <option value="14">14</option>
+        </select>
       </div>
 
       <section id="statusPopover" class="status-popover status-hidden" aria-hidden="true">
