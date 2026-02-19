@@ -513,6 +513,29 @@ body {
   line-height: 1.4;
 }
 
+.info-tech {
+  margin-top: 0.2rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: #f8fafc;
+  padding: 0.4rem;
+}
+
+.info-tech h3 {
+  margin: 0 0 0.22rem;
+  font-size: 0.73rem;
+  color: #334155;
+}
+
+#infoTechMetrics {
+  margin: 0;
+  font-size: 0.66rem;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  color: #0f172a;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+}
+
 .menu-popover {
   position: fixed;
   left: 0.5rem;

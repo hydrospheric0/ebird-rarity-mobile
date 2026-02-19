@@ -156,6 +156,10 @@ app.innerHTML = `
         <p>This mobile view shows nearby eBird county rarities with map + table syncing.</p>
         <p>Use the top menu to switch county and days back, and use search to filter region/species quickly.</p>
         <p>Technical diagnostics are available at <a href="./log.html">/log.html</a>.</p>
+        <section class="info-tech" aria-label="Technical metrics">
+          <h3>Technical metrics</h3>
+          <pre id="infoTechMetrics">Loading…</pre>
+        </section>
         <button id="infoCloseBtn" class="primary" type="button">Close</button>
       </section>
     </div>
@@ -212,6 +216,7 @@ const menuPinBtn = document.querySelector('#menuPin')
 const menuRefreshBtn = document.querySelector('#menuRefresh')
 const infoModal = document.querySelector('#infoModal')
 const infoCloseBtn = document.querySelector('#infoCloseBtn')
+const infoTechMetrics = document.querySelector('#infoTechMetrics')
 const searchPopover = document.querySelector('#searchPopover')
 const searchRegionSelect = document.querySelector('#searchRegionSelect')
 const searchCountySelect = document.querySelector('#searchCountySelect')
@@ -899,7 +904,24 @@ function refreshCountyPickerSummaries() {
   updateCountyPickerFromGeojson(latestCountyContextGeojson)
 }
 
+function renderInfoTechMetrics() {
+  if (!infoTechMetrics) return
+  const lines = [
+    `Build: ${BUILD_TAG}`,
+    `API: ${apiStatus?.textContent || '—'}`,
+    `API Detail: ${apiDetail?.textContent || '—'}`,
+    `Location: ${locationStatus?.textContent || '—'}`,
+    `Location Detail: ${locationDetail?.textContent || '—'}`,
+    `County: ${currentCountyName || '—'}${currentCountyRegion ? ` (${currentCountyRegion})` : ''}`,
+    `Filters: days=${filterDaysBack} abaMin=${filterAbaMin} species=${selectedSpecies || 'all'} aba=${selectedAbaCode ?? 'all'}`,
+    'Load Times:',
+    perfDetail?.textContent ? perfDetail.textContent : '—',
+  ]
+  infoTechMetrics.textContent = lines.join('\n')
+}
+
 function updateRuntimeLog() {
+  renderInfoTechMetrics()
   try {
     localStorage.setItem('mrm_runtime_log', JSON.stringify({
       timestamp: new Date().toISOString(),
@@ -3001,6 +3023,7 @@ async function requestUserLocation(manualRetry = false) {
 retryLocationBtn.addEventListener('click', () => { void requestUserLocation(true) })
 menuInfoBtn.addEventListener('click', () => {
   if (!infoModal) return
+  renderInfoTechMetrics()
   infoModal.removeAttribute('hidden')
 })
 infoCloseBtn?.addEventListener('click', () => {
