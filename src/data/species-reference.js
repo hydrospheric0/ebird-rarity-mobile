@@ -14,6 +14,21 @@ function normalizeSpeciesName(value) {
     .trim()
 }
 
+function normalizeCodeToken(value) {
+  return String(value || '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '')
+    .trim()
+}
+
+const ABA_CODE_OVERRIDES = new Map([
+  ['northern yellow warbler', 1],
+  ['yellow warbler', 1],
+  ['mangrove yellow warbler', 3],
+  ['YEWA', 1],
+  ['FEPE', 3],
+])
+
 let speciesLookupIndex = null
 
 function buildSpeciesLookupIndex() {
@@ -62,6 +77,26 @@ export function getSpeciesReference(speciesName) {
 
 export function getYoloSpeciesInfo(speciesName) {
   return getSpeciesReference(speciesName)
+}
+
+export function getAbaCodeOverride(speciesName, speciesCode = null) {
+  const normalizedName = normalizeSpeciesName(speciesName)
+  if (normalizedName && ABA_CODE_OVERRIDES.has(normalizedName)) {
+    return ABA_CODE_OVERRIDES.get(normalizedName)
+  }
+
+  const normalizedCode = normalizeCodeToken(speciesCode)
+  if (normalizedCode && ABA_CODE_OVERRIDES.has(normalizedCode)) {
+    return ABA_CODE_OVERRIDES.get(normalizedCode)
+  }
+
+  const info = getSpeciesReference(speciesName)
+  const code4 = normalizeCodeToken(info?.code4)
+  if (code4 && ABA_CODE_OVERRIDES.has(code4)) {
+    return ABA_CODE_OVERRIDES.get(code4)
+  }
+
+  return null
 }
 
 export function getSpeciesMapLabel(speciesName) {

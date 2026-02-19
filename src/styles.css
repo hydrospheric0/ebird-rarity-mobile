@@ -82,7 +82,7 @@ body {
 }
 
 #headerCountySelect {
-  width: min(34vw, 8.7rem);
+  width: min(28vw, 7.6rem);
   background: #7c3aed;
   color: #ffffff;
   border-color: rgba(255, 255, 255, 0.28);

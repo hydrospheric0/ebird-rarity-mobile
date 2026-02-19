@@ -2,7 +2,7 @@ import './styles.css'
 import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
 import { API_BASE_URL, fetchWorkerHealth } from './config/api.js'
-import { getYoloSpeciesInfo, getSpeciesMapLabel } from './data/species-reference.js'
+import { getYoloSpeciesInfo, getSpeciesMapLabel, getAbaCodeOverride } from './data/species-reference.js'
 
 const BUILD_TAG = typeof __BUILD_TAG__ !== 'undefined' ? __BUILD_TAG__ : 'dev'
 
@@ -11,7 +11,7 @@ const app = document.querySelector('#app')
 app.innerHTML = `
   <div id="appShell" class="app-shell">
     <header class="app-header">
-      <h1 class="app-title">eBird Rarities</h1>
+      <h1 class="app-title">eBird County Rarities</h1>
 
       <div class="top-menu" aria-label="Top menu">
         <select id="headerCountySelect" class="top-menu-select" aria-label="County">
@@ -480,16 +480,23 @@ function cutoffDateForDaysBack(daysBack) {
 function getAbaCodeNumber(item) {
   const rawCode = item?.abaCode ?? item?.abaRarityCode
   const code = Number(rawCode)
-  if (!Number.isFinite(code)) return null
-  const rounded = Math.round(code)
-  return rounded >= 1 && rounded <= 6 ? rounded : null
+  if (Number.isFinite(code)) {
+    const rounded = Math.round(code)
+    if (rounded >= 1 && rounded <= 6) return rounded
+  }
+  const overrideCode = getAbaCodeOverride(
+    item?.comName || item?.species || '',
+    item?.speciesCode || item?.species_code || item?.speciesCode4 || ''
+  )
+  return Number.isFinite(Number(overrideCode)) ? Math.round(Number(overrideCode)) : null
 }
 
 function matchesAbaSelection(item, abaMinValue, selectedCode) {
   const code = getAbaCodeNumber(item)
-  const selected = Number(selectedCode)
+  const hasSelectedCode = selectedCode !== null && selectedCode !== undefined && selectedCode !== ''
+  const selected = hasSelectedCode ? Number(selectedCode) : null
   if (selectedCode === 0 || selected === 0) return !Number.isFinite(code)
-  if (Number.isFinite(selected)) {
+  if (hasSelectedCode && Number.isFinite(selected)) {
     const normalized = Math.round(selected)
     return Number.isFinite(code) && code === normalized
   }
