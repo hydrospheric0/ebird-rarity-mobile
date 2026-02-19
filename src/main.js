@@ -682,6 +682,56 @@ function getFeatureCenter(feature) {
   }
 }
 
+function pointInRing(lng, lat, ring) {
+  let inside = false
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = Number(ring[i]?.[0])
+    const yi = Number(ring[i]?.[1])
+    const xj = Number(ring[j]?.[0])
+    const yj = Number(ring[j]?.[1])
+    if (!Number.isFinite(xi) || !Number.isFinite(yi) || !Number.isFinite(xj) || !Number.isFinite(yj)) continue
+    const intersects = ((yi > lat) !== (yj > lat)) && (lng < ((xj - xi) * (lat - yi)) / ((yj - yi) || 1e-12) + xi)
+    if (intersects) inside = !inside
+  }
+  return inside
+}
+
+function pointInPolygon(lng, lat, polygonCoords) {
+  if (!Array.isArray(polygonCoords) || polygonCoords.length === 0) return false
+  const outer = polygonCoords[0]
+  if (!Array.isArray(outer) || outer.length < 3) return false
+  if (!pointInRing(lng, lat, outer)) return false
+  for (let index = 1; index < polygonCoords.length; index += 1) {
+    const hole = polygonCoords[index]
+    if (Array.isArray(hole) && hole.length >= 3 && pointInRing(lng, lat, hole)) {
+      return false
+    }
+  }
+  return true
+}
+
+function featureContainsPoint(feature, lng, lat) {
+  const geometry = feature?.geometry
+  if (!geometry) return false
+  if (geometry.type === 'Polygon') {
+    return pointInPolygon(lng, lat, geometry.coordinates)
+  }
+  if (geometry.type === 'MultiPolygon') {
+    return Array.isArray(geometry.coordinates)
+      && geometry.coordinates.some((polygonCoords) => pointInPolygon(lng, lat, polygonCoords))
+  }
+  return false
+}
+
+function findNeighborCountyFeatureAtLatLng(lat, lng) {
+  const features = Array.isArray(latestCountyContextGeojson?.features) ? latestCountyContextGeojson.features : []
+  for (const feature of features) {
+    if (feature?.properties?.isActiveCounty) continue
+    if (featureContainsPoint(feature, lng, lat)) return feature
+  }
+  return null
+}
+
 function zoomToActiveCounty(geojson, countyRegion = null) {
   if (!map || !geojson || !Array.isArray(geojson.features)) return
   const targetRegion = String(countyRegion || '').toUpperCase()
@@ -865,7 +915,7 @@ function updateCountyDots() {
         L.DomEvent.stopPropagation(e.originalEvent)
         L.DomEvent.preventDefault(e.originalEvent)
       }
-      activateCountyByRegion(opt.countyRegion, opt.lat, opt.lng, opt.countyName)
+      switchCountyFromMapTap(opt.countyRegion, opt.lat, opt.lng, opt.countyName)
     })
 
     countyDotLayerRef.addLayer(dot)
@@ -995,6 +1045,28 @@ function switchToCountyOption(option) {
   const activeRegion = String(currentCountyRegion || '').toUpperCase()
   if (optionRegion && optionRegion === activeRegion) return
   void loadNeighborCounty(option.lat, option.lng, option.countyRegion, option.countyName)
+}
+
+function switchCountyFromMapTap(countyRegion, lat = null, lng = null, countyName = '') {
+  const region = String(countyRegion || '').toUpperCase() || null
+  if (!region) {
+    activateCountyByRegion(null, lat, lng, countyName)
+    return
+  }
+  const activeRegion = String(currentCountyRegion || '').toUpperCase()
+  if (region === activeRegion) return
+  const tapLat = Number(lat)
+  const tapLng = Number(lng)
+  const option = countyPickerOptions.find((opt) => String(opt.countyRegion || '').toUpperCase() === region) || null
+  const resolvedLat = Number.isFinite(tapLat) ? tapLat : Number(option?.lat)
+  const resolvedLng = Number.isFinite(tapLng) ? tapLng : Number(option?.lng)
+  const resolvedName = countyName || option?.countyName || ''
+  void loadNeighborCounty(
+    Number.isFinite(resolvedLat) ? resolvedLat : null,
+    Number.isFinite(resolvedLng) ? resolvedLng : null,
+    region,
+    resolvedName
+  )
 }
 
 function normalizeCountyName(value) {
@@ -1805,7 +1877,7 @@ function updateUserLocationOnMap(latitude, longitude, accuracyMeters) {
     userDot = L.circleMarker([latitude, longitude], {
       radius: 8,
       color: '#ffffff',
-      weight: 2.5,
+      weight: 1.4,
       fillColor: '#7c3aed',
       fillOpacity: 1,
       pane: 'userDotPane',
@@ -1874,7 +1946,14 @@ function drawCountyOverlay(geojson) {
               L.DomEvent.preventDefault(e.originalEvent)
             }
             flashNeighborLayer(layer)
-            activateCountyByRegion(region, e.latlng.lat, e.latlng.lng, name)
+            const tapLat = Number(e?.latlng?.lat)
+            const tapLng = Number(e?.latlng?.lng)
+            switchCountyFromMapTap(
+              region,
+              Number.isFinite(tapLat) ? tapLat : null,
+              Number.isFinite(tapLng) ? tapLng : null,
+              name
+            )
           },
           mouseover: () => layer.setStyle({ fillOpacity: 0.56, fillColor: '#94a3b8', color: '#475569', weight: 1 }),
           mouseout: () => {
@@ -2073,9 +2152,7 @@ function buildGroupedRowsFromObservations(observations) {
     const countyRegion = String(item?.subnational2Code || '').toUpperCase() || null
     const key = `${species}::${state}::${county}`
     const date = parseObsDate(item.obsDt)
-    const rawCode = item.abaCode ?? item.abaRarityCode
-    const code = Number(rawCode)
-    const abaCode = Number.isFinite(code) ? code : null
+    const abaCode = getAbaCodeNumber(item)
     const lat = Number(item.lat)
     const lng = Number(item.lng)
 
@@ -2467,25 +2544,35 @@ function ensureCanvasClickHandler() {
   _canvasClickInstalled = true
   // We listen on the map container directly so we get clicks through the canvas
   document.querySelector('#map')?.addEventListener('click', (e) => {
-    const target = e.target
-    if (target instanceof Element && target.closest('.leaflet-interactive, .county-dot-icon, .county-dot-marker')) {
-      return
-    }
-    if (!map || fastCanvasData.length === 0) return
+    if (!map) return
     const rect = map.getContainer().getBoundingClientRect()
     const cp = L.point(e.clientX - rect.left, e.clientY - rect.top)
-    const pt = hitTestCanvas(cp)
-    if (!pt) {
+    let pt = null
+    if (fastCanvasData.length > 0) {
+      pt = hitTestCanvas(cp)
+      if (pt) {
+        if (pt.isCluster && map) {
+          const nextZoom = Math.max(map.getZoom() + 2, CLUSTER_ZOOM_THRESHOLD + 1)
+          map.setView([pt.lat, pt.lng], nextZoom, { animate: true })
+          return
+        }
+        e.stopPropagation()
+        openObservationPopup(pt)
+        return
+      }
+    }
+
+    const latlng = map.containerPointToLatLng(cp)
+    const neighborFeature = findNeighborCountyFeatureAtLatLng(latlng.lat, latlng.lng)
+    if (neighborFeature) {
+      const region = String(neighborFeature?.properties?.countyRegion || neighborFeature?.properties?.subnational2Code || '').toUpperCase() || null
+      const name = neighborFeature?.properties?.countyName || neighborFeature?.properties?.NAME || neighborFeature?.properties?.name || ''
       if (fastCanvasPopup) { fastCanvasPopup.remove(); fastCanvasPopup = null }
+      switchCountyFromMapTap(region, latlng.lat, latlng.lng, name)
       return
     }
-    if (pt.isCluster && map) {
-      const nextZoom = Math.max(map.getZoom() + 2, CLUSTER_ZOOM_THRESHOLD + 1)
-      map.setView([pt.lat, pt.lng], nextZoom, { animate: true })
-      return
-    }
-    e.stopPropagation()
-    openObservationPopup(pt)
+
+    if (fastCanvasPopup) { fastCanvasPopup.remove(); fastCanvasPopup = null }
   })
 }
 // ---------------------------------------------------------------------------
@@ -3241,8 +3328,19 @@ searchApplyBtn?.addEventListener('click', async () => {
   }
   searchPopover?.setAttribute('hidden', 'hidden')
 })
+
+function focusMapOnUserLocation() {
+  if (!map) return
+  if (lastUserLat !== null && lastUserLng !== null) {
+    map.invalidateSize()
+    map.setView([lastUserLat, lastUserLng], Math.max(map.getZoom(), 12), { animate: true })
+  } else {
+    void requestUserLocation()
+  }
+}
+
 menuPinBtn.addEventListener('click', () => {
-  notableMeta.textContent = 'Pin mode is defunct for now.'
+  focusMapOnUserLocation()
 })
 menuRefreshBtn.addEventListener('click', () => {
   void triggerHardRefresh()
@@ -3269,13 +3367,7 @@ mapBasemapToggleBtn?.addEventListener('click', () => {
 })
 
 mapLocateBtn?.addEventListener('click', () => {
-  if (!map) return
-  if (lastUserLat !== null && lastUserLng !== null) {
-    map.invalidateSize()
-    map.setView([lastUserLat, lastUserLng], Math.max(map.getZoom(), 12), { animate: true })
-  } else {
-    void requestUserLocation()
-  }
+  focusMapOnUserLocation()
 })
 
 mapLabelToggleBtn?.addEventListener('click', () => {
