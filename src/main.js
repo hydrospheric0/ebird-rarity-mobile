@@ -512,7 +512,7 @@ function matchesAbaSelection(item, abaMinValue, selectedCode) {
 }
 
 function applyActiveFiltersAndRender(options = {}) {
-  const { renderMap = true, fitToObservations = false } = options
+  const { renderMap = true, fitToObservations = false, allowAutoRecovery = true } = options
   const source = Array.isArray(currentRawObservations) ? currentRawObservations : []
   const cutoff = cutoffDateForDaysBack(filterDaysBack)
   const abaMin = Math.max(1, Number(filterAbaMin) || 1)
@@ -531,12 +531,32 @@ function applyActiveFiltersAndRender(options = {}) {
     ? filteredByStatus.filter((item) => String(item?.comName || '') === selectedSpecies)
     : filteredByStatus
   const filtered = filteredBySpecies.filter((item) => matchesAbaSelection(item, abaMin, selectedAbaCode))
-  const abaPillSource = (selectedAbaCode === 0 || Number.isFinite(Number(selectedAbaCode)))
-    ? filtered
-    : filteredBySpecies.filter((item) => {
-      const code = getAbaCodeNumber(item)
-      return Number.isFinite(code) && code >= abaMin
-    })
+
+  if (allowAutoRecovery && filtered.length === 0 && filteredByDays.length > 0) {
+    let recovered = false
+    if (selectedSpecies && filteredByStatus.length > 0) {
+      selectedSpecies = null
+      recovered = true
+    } else if ((selectedAbaCode === 0 || Number.isFinite(Number(selectedAbaCode))) && filteredBySpecies.length > 0) {
+      selectedAbaCode = null
+      filterAbaMin = 1
+      if (filterAbaMinInput) filterAbaMinInput.value = '1'
+      recovered = true
+    } else if (selectedReviewFilter) {
+      selectedReviewFilter = null
+      recovered = true
+    }
+
+    if (recovered) {
+      updateFilterUi()
+      return applyActiveFiltersAndRender({ renderMap, fitToObservations, allowAutoRecovery: false })
+    }
+  }
+
+  const abaPillSource = filteredBySpecies.filter((item) => {
+    const code = getAbaCodeNumber(item)
+    return Number.isFinite(code) && code >= abaMin
+  })
   refreshSearchSpeciesOptions(filteredByDays)
   renderNotableTable(filtered, currentCountyName, currentCountyRegion, abaPillSource)
   if (renderMap) {
@@ -1300,14 +1320,6 @@ function renderAbaStatPills(sorted) {
   })
   if (counts.size === 0) return
   const orderedCodes = [1, 2, 3, 4, 5, 6]
-  if (Number.isFinite(selectedAbaCode) && selectedAbaCode >= 1 && selectedAbaCode <= 6) {
-    const selected = Number(selectedAbaCode)
-    const selectedIndex = orderedCodes.indexOf(selected)
-    if (selectedIndex > 0) {
-      orderedCodes.splice(selectedIndex, 1)
-      orderedCodes.unshift(selected)
-    }
-  }
   const html = orderedCodes
     .filter((c) => counts.has(c))
     .map((c) => {
