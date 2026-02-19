@@ -536,6 +536,30 @@ body {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
 }
 
+.debug-toggle-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #334155;
+}
+
+.tap-debug-log {
+  margin: 0.35rem 0 0;
+  max-height: 10rem;
+  overflow: auto;
+  font-size: 0.63rem;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  color: #0f172a;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+  border: 1px solid var(--border);
+  border-radius: 0.42rem;
+  background: #ffffff;
+  padding: 0.3rem;
+}
+
 .menu-popover {
   position: fixed;
   left: 0.5rem;
