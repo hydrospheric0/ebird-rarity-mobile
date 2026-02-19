@@ -84,8 +84,8 @@ app.innerHTML = `
         <section class="card table-card">
           <div class="obs-stats-bar">
             <div class="stats-left">
-              <span id="statConfirmed" class="obs-stat obs-stat-confirmed" data-label="Confirmed" tabindex="0" role="button" title="Confirmed">—</span>
-              <span id="statPending" class="obs-stat obs-stat-pending" data-label="Pending" tabindex="0" role="button" title="Pending">—</span>
+              <span id="statConfirmed" class="obs-stat obs-stat-confirmed" data-label="✓" tabindex="0" role="button" title="Confirmed">—</span>
+              <span id="statPending" class="obs-stat obs-stat-pending" data-label="?" tabindex="0" role="button" title="Pending">—</span>
               <div id="statsRight" class="stats-right"></div>
             </div>
           </div>
@@ -167,6 +167,10 @@ app.innerHTML = `
           <span>State:</span>
           <select id="searchRegionSelect" class="top-menu-select" aria-label="Search state"></select>
         </label>
+        <label class="menu-popover-field" for="searchCountySelect">
+          <span>County:</span>
+          <select id="searchCountySelect" class="top-menu-select" aria-label="Search county"></select>
+        </label>
         <label class="menu-popover-field" for="searchSpeciesSelect">
           <span>Species:</span>
           <select id="searchSpeciesSelect" class="top-menu-select" aria-label="Search species"></select>
@@ -210,6 +214,7 @@ const infoModal = document.querySelector('#infoModal')
 const infoCloseBtn = document.querySelector('#infoCloseBtn')
 const searchPopover = document.querySelector('#searchPopover')
 const searchRegionSelect = document.querySelector('#searchRegionSelect')
+const searchCountySelect = document.querySelector('#searchCountySelect')
 const searchSpeciesSelect = document.querySelector('#searchSpeciesSelect')
 const searchDaysBackSelect = document.querySelector('#searchDaysBackSelect')
 const searchApplyBtn = document.querySelector('#searchApplyBtn')
@@ -540,6 +545,8 @@ function setPillExpandedLabel(pill, prefix) {
 function syncFilterPillUi() {
   setPillExpandedLabel(statConfirmed, '✓')
   setPillExpandedLabel(statPending, '?')
+  if (statConfirmed) statConfirmed.setAttribute('title', 'Confirmed')
+  if (statPending) statPending.setAttribute('title', 'Pending')
   const abaPills = document.querySelectorAll('#statsRight .stat-aba-pill')
   abaPills.forEach((pill) => {
     const code = Number(pill.dataset.code)
@@ -1015,6 +1022,67 @@ function refreshSearchSpeciesOptions(source) {
     optionsHtml.push(`<option value="${escapeHtml(name)}" ${isSelected ? 'selected' : ''}>${escapeHtml(name)}</option>`)
   })
   searchSpeciesSelect.innerHTML = optionsHtml.join('')
+}
+
+function refreshSearchCountyOptions(source, stateRegion = '') {
+  if (!searchCountySelect) return
+  const normalizedState = /^US-[A-Z]{2}$/.test(String(stateRegion || '').toUpperCase())
+    ? String(stateRegion || '').toUpperCase()
+    : (stateRegionFromCountyRegion(currentCountyRegion || '') || '')
+  const entries = new Map()
+  ;(Array.isArray(source) ? source : []).forEach((item) => {
+    const itemState = String(item?.subnational1Code || '').toUpperCase()
+    if (normalizedState && itemState !== normalizedState) return
+    const countyRegion = String(item?.subnational2Code || '').toUpperCase()
+    if (!countyRegion) return
+    const countyName = String(item?.subnational2Name || countyRegion)
+    if (!entries.has(countyRegion)) {
+      entries.set(countyRegion, { countyRegion, countyName, count: 0 })
+    }
+    entries.get(countyRegion).count += 1
+  })
+
+  const list = Array.from(entries.values()).sort((a, b) => a.countyName.localeCompare(b.countyName))
+  const existing = String(searchCountySelect.value || '').toUpperCase()
+  const currentCounty = /^US-[A-Z]{2}-\d{3}$/.test(String(currentCountyRegion || '').toUpperCase())
+    ? String(currentCountyRegion || '').toUpperCase()
+    : ''
+  const selectedCounty = list.some((entry) => entry.countyRegion === existing)
+    ? existing
+    : (list.some((entry) => entry.countyRegion === currentCounty) ? currentCounty : '')
+
+  searchCountySelect.innerHTML = [
+    '<option value="">All counties</option>',
+    ...list.map((entry) => {
+      const selected = selectedCounty && selectedCounty === entry.countyRegion
+      return `<option value="${escapeHtml(entry.countyRegion)}" ${selected ? 'selected' : ''}>${escapeHtml(entry.countyName)}</option>`
+    }),
+  ].join('')
+}
+
+function activateCountyFromSearchSelection(countyRegion) {
+  const targetRegion = String(countyRegion || '').toUpperCase()
+  if (!/^US-[A-Z]{2}-\d{3}$/.test(targetRegion)) return
+  const option = countyPickerOptions.find((opt) => String(opt.countyRegion || '').toUpperCase() === targetRegion)
+  if (option) {
+    activateCountyFromOption(option)
+    return
+  }
+
+  const sample = (Array.isArray(currentRawObservations) ? currentRawObservations : []).find(
+    (item) => String(item?.subnational2Code || '').toUpperCase() === targetRegion
+      && Number.isFinite(Number(item?.lat))
+      && Number.isFinite(Number(item?.lng))
+  )
+  const countyName = sample?.subnational2Name || sample?.subnational2Code || ''
+  const lat = Number(sample?.lat)
+  const lng = Number(sample?.lng)
+  activateCountyByRegion(
+    targetRegion,
+    Number.isFinite(lat) ? lat : null,
+    Number.isFinite(lng) ? lng : null,
+    countyName
+  )
 }
 
 function updateCountyPickerFromGeojson(geojson) {
@@ -2975,15 +3043,20 @@ updateFilterUi()
 menuSearchBtn.addEventListener('click', () => {
   if (!searchPopover) return
   refreshSearchRegionOptions()
+  refreshSearchCountyOptions(currentRawObservations, searchRegionSelect?.value || '')
   refreshSearchSpeciesOptions(currentRawObservations)
   updateFilterUi()
   searchPopover.toggleAttribute('hidden')
 })
+searchRegionSelect?.addEventListener('change', () => {
+  refreshSearchCountyOptions(currentRawObservations, searchRegionSelect?.value || '')
+})
 searchCloseBtn?.addEventListener('click', () => {
   searchPopover?.setAttribute('hidden', 'hidden')
 })
-searchApplyBtn?.addEventListener('click', () => {
+searchApplyBtn?.addEventListener('click', async () => {
   const selectedRegion = String(searchRegionSelect?.value || '').toUpperCase()
+  const selectedCountyRegion = String(searchCountySelect?.value || '').toUpperCase()
   const selectedName = String(searchSpeciesSelect?.value || '').trim()
   const chosenDays = Number(searchDaysBackSelect?.value || filterDaysBack) || filterDaysBack
   selectedSpecies = selectedName || null
@@ -2993,11 +3066,14 @@ searchApplyBtn?.addEventListener('click', () => {
   applyActiveFiltersAndRender({ fitToObservations: true })
   if (selectedRegion) {
     if (/^US-[A-Z]{2}$/.test(selectedRegion)) {
-      void loadStateNotables(selectedRegion)
+      await loadStateNotables(selectedRegion)
     } else {
       const option = countyPickerOptions.find((opt) => String(opt.countyRegion || '').toUpperCase() === selectedRegion)
       if (option) activateCountyFromOption(option)
     }
+  }
+  if (/^US-[A-Z]{2}-\d{3}$/.test(selectedCountyRegion)) {
+    activateCountyFromSearchSelection(selectedCountyRegion)
   }
   searchPopover?.setAttribute('hidden', 'hidden')
 })
@@ -3089,7 +3165,15 @@ function activateAbaPill(pill) {
   if (!Number.isFinite(parsedCode)) return
   const code = Math.round(parsedCode)
   if (code < 1 || code > 6) return
-  selectedAbaCode = selectedAbaCode === code ? null : code
+  const current = Number.isFinite(Number(selectedAbaCode)) ? Math.round(Number(selectedAbaCode)) : null
+  if (current === code) {
+    selectedAbaCode = null
+    filterAbaMin = 1
+    if (filterAbaMinInput) filterAbaMinInput.value = '1'
+    updateFilterUi()
+  } else {
+    selectedAbaCode = code
+  }
   applyActiveFiltersAndRender()
 }
 
