@@ -21,6 +21,15 @@ function normalizeCodeToken(value) {
     .trim()
 }
 
+function stripParenthetical(value) {
+  return String(value || '').replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+function extractParentheticalCode(value) {
+  const match = String(value || '').match(/\(([A-Za-z0-9]{3,8})\)/)
+  return match ? normalizeCodeToken(match[1]) : ''
+}
+
 const ABA_CODE_OVERRIDES = new Map([
   ['northern yellow warbler', 1],
   ['yellow warbler', 1],
@@ -29,12 +38,18 @@ const ABA_CODE_OVERRIDES = new Map([
   ['FEPE', 3],
 ])
 
+const CODE4_OVERRIDES = new Map([
+  ['green winged teal eurasian', 'EGWT'],
+])
+
 let speciesLookupIndex = null
+let speciesCodeLookupIndex = null
 
 function buildSpeciesLookupIndex() {
-  if (speciesLookupIndex) return speciesLookupIndex
+  if (speciesLookupIndex && speciesCodeLookupIndex) return speciesLookupIndex
 
   const index = new Map()
+  const codeIndex = new Map()
   Object.entries(species).forEach(([speciesName, info]) => {
     if (!info || typeof info !== 'object') return
 
@@ -61,18 +76,31 @@ function buildSpeciesLookupIndex() {
     keys.forEach((key) => {
       if (!index.has(key)) index.set(key, payload)
     })
+
+    const code4 = normalizeCodeToken(info.code4)
+    const code6 = normalizeCodeToken(info.code6)
+    if (code4 && !codeIndex.has(code4)) codeIndex.set(code4, payload)
+    if (code6 && !codeIndex.has(code6)) codeIndex.set(code6, payload)
   })
 
   speciesLookupIndex = index
+  speciesCodeLookupIndex = codeIndex
   return speciesLookupIndex
 }
 
 export function getSpeciesReference(speciesName) {
   if (!speciesName) return null
-  const key = normalizeSpeciesName(speciesName)
-  if (!key) return null
+  const rawName = String(speciesName || '')
+  const key = normalizeSpeciesName(rawName)
+  const strippedKey = normalizeSpeciesName(stripParenthetical(rawName))
+  const parenCode = extractParentheticalCode(rawName)
+  const tokenCode = normalizeCodeToken(rawName)
   const index = buildSpeciesLookupIndex()
-  return index.get(key) || null
+  if (key && index.has(key)) return index.get(key) || null
+  if (strippedKey && index.has(strippedKey)) return index.get(strippedKey) || null
+  if (parenCode && speciesCodeLookupIndex?.has(parenCode)) return speciesCodeLookupIndex.get(parenCode) || null
+  if (tokenCode && speciesCodeLookupIndex?.has(tokenCode)) return speciesCodeLookupIndex.get(tokenCode) || null
+  return null
 }
 
 export function getYoloSpeciesInfo(speciesName) {
@@ -100,6 +128,10 @@ export function getAbaCodeOverride(speciesName, speciesCode = null) {
 }
 
 export function getSpeciesMapLabel(speciesName) {
+  const normalizedName = normalizeSpeciesName(speciesName)
+  if (normalizedName && CODE4_OVERRIDES.has(normalizedName)) {
+    return CODE4_OVERRIDES.get(normalizedName)
+  }
   const info = getSpeciesReference(speciesName)
   if (!info) return speciesName
   return info.code4 || info.code6 || speciesName
