@@ -8,10 +8,39 @@ const BUILD_TAG = typeof __BUILD_TAG__ !== 'undefined' ? __BUILD_TAG__ : 'dev'
 
 const YOLO_COUNTY_REGION = 'US-CA-113'
 
+const EBIRD_API_KEY_STORAGE_KEY = 'mrm_ebird_api_key'
+
 const app = document.querySelector('#app')
 
 app.innerHTML = `
   <div id="appShell" class="app-shell">
+    <div id="apiKeyGate" class="api-key-gate" hidden>
+      <div class="api-key-card" role="dialog" aria-modal="true" aria-labelledby="apiKeyTitle">
+        <h2 id="apiKeyTitle">eBird API key required</h2>
+        <label class="api-key-field" for="apiKeyInput">
+          <span>API key:</span>
+          <div class="api-key-input-row">
+            <input id="apiKeyInput" class="api-key-input" type="password" inputmode="text" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Paste eBird API key">
+            <button id="apiKeyToggleBtn" class="menu-btn api-key-visibility-btn" type="button" aria-label="Show API key" aria-pressed="false" title="Show API key">
+              <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"></path>
+                <circle cx="12" cy="12" r="3"></circle>
+              </svg>
+            </button>
+          </div>
+        </label>
+        <div class="api-key-actions">
+          <button id="apiKeySaveBtn" class="primary" type="button">Save key</button>
+          <button id="apiKeyOpenBtn" class="menu-btn" type="button">eBird API keygen</button>
+        </div>
+        <ul class="api-key-notes" aria-label="API key notes">
+          <li>If you’re already signed in on eBird in this browser, that page should show your key. Paste it here to continue.</li>
+          <li>This key is only stored in your browser session and cannot be seen or read by others.</li>
+          <li>When your session expires/resets you have to enter it again.</li>
+        </ul>
+        <p id="apiKeyError" class="api-key-error" aria-live="polite"></p>
+      </div>
+    </div>
     <header class="app-header">
       <h1 class="app-title">eBird County Rarities</h1>
 
@@ -87,6 +116,7 @@ app.innerHTML = `
               <option value="7" selected>7 days</option>
               <option value="14">14 days</option>
             </select>
+            <button id="sortModeBtn" class="top-menu-select top-menu-btn sort-toggle-btn" type="button" aria-label="Toggle sort (ABA/distance)" aria-pressed="false" title="Sort: ABA (tap for distance)"><span class="sort-toggle-icon" aria-hidden="true">⌖</span><span class="sort-toggle-label">ABA</span></button>
             <div id="topAbaPills" class="top-aba-pills" aria-label="ABA counts"></div>
           </div>
           <div id="countyPicker" class="county-picker" hidden>
@@ -219,6 +249,7 @@ const headerCountySelect = document.querySelector('#headerCountySelect')
 const headerCountyBtn = document.querySelector('#headerCountyBtn')
 const headerStateSelect = document.querySelector('#headerStateSelect')
 const headerStateBtn = document.querySelector('#headerStateBtn')
+const sortModeBtn = document.querySelector('#sortModeBtn')
 const filterAbaMinInput = document.querySelector('#filterAbaMin')
 const filterAbaMinValue = document.querySelector('#filterAbaMinValue')
 const statusPopover = document.querySelector('#statusPopover')
@@ -250,6 +281,12 @@ const mapBasemapToggleBtn = document.querySelector('#mapBasemapToggle')
 const mapLocateBtn = document.querySelector('#mapLocateBtn')
 const mapLabelToggleBtn = document.querySelector('#mapLabelToggle')
 const appShell = document.querySelector('#appShell')
+const apiKeyGate = document.querySelector('#apiKeyGate')
+const apiKeyInput = document.querySelector('#apiKeyInput')
+const apiKeyToggleBtn = document.querySelector('#apiKeyToggleBtn')
+const apiKeySaveBtn = document.querySelector('#apiKeySaveBtn')
+const apiKeyOpenBtn = document.querySelector('#apiKeyOpenBtn')
+const apiKeyError = document.querySelector('#apiKeyError')
 const notableCount = document.querySelector('#notableCount')
 const notableMeta = document.querySelector('#notableMeta')
 const topAbaPills = document.querySelector('#topAbaPills')
@@ -327,6 +364,7 @@ let labelMode = 'abbr' // 'abbr', 'full', 'off'
 let lastUserLat = null
 let lastUserLng = null
 let currentTableData = [] // all rows for re-sorting
+let lastTableObservationSource = []
 let sortState = { col: 'aba', dir: 'desc' } // col: 'aba'|'last'|'first'|'distance', dir: 'asc'|'desc'
 let activeSortCountyRegion = YOLO_COUNTY_REGION
 let latestLocationRequestId = 0
@@ -656,34 +694,21 @@ function applyActiveFiltersAndRender(options = {}) {
   const filteredBySpecies = selectedSpecies
     ? filteredByStatus.filter((item) => String(item?.comName || '') === selectedSpecies)
     : filteredByStatus
-  const filtered = filteredBySpecies.filter((item) => matchesAbaSelection(item, abaMin, selectedAbaCode))
 
   const activeCountyCode = String(currentActiveCountyCode || '').toUpperCase()
   const isStateMode = /^US-[A-Z]{2}$/.test(activeRegion) && !isCountyRegionCode(activeCountyCode) && activeRegion !== US_REGION_CODE
   const isNationalSummaryMode = activeRegion === US_REGION_CODE
-  let filteredWithDistanceCap = filtered
-  if (isStateMode) {
-    const anchor = getDistanceAnchorPoint()
-    if (anchor) {
-      const capKm = 50 * 1.60934
-      filteredWithDistanceCap = filtered.filter((item) => {
-        const lat = Number(item?.lat)
-        const lng = Number(item?.lng)
-        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false
-        return distanceKm(anchor.lat, anchor.lng, lat, lng) <= capKm
-      })
-    }
-  }
+
+  // State mode shows the full state's dataset; distance is used for sorting
+  // (in the table renderer), not for filtering.
+  const pillObservationSource = filteredBySpecies
+
+  const filtered = pillObservationSource.filter((item) => matchesAbaSelection(item, abaMin, selectedAbaCode))
 
   if (allowAutoRecovery && filtered.length === 0 && filteredByDays.length > 0) {
     let recovered = false
     if (selectedSpecies && filteredByStatus.length > 0) {
       selectedSpecies = null
-      recovered = true
-    } else if ((selectedAbaCode === 0 || Number.isFinite(Number(selectedAbaCode))) && filteredBySpecies.length > 0) {
-      selectedAbaCode = null
-      filterAbaMin = abaFloor
-      if (filterAbaMinInput) filterAbaMinInput.value = String(abaFloor)
       recovered = true
     } else if (selectedReviewFilter) {
       selectedReviewFilter = null
@@ -696,21 +721,19 @@ function applyActiveFiltersAndRender(options = {}) {
     }
   }
 
-  const abaPillSource = filteredWithDistanceCap.filter((item) => {
-    const code = getAbaCodeNumber(item)
-    return Number.isFinite(code) && code >= abaMin
-  })
+  // ABA pills should reflect the current view's dataset before ABA filtering.
+  const abaPillSource = pillObservationSource
   refreshSearchSpeciesOptions(filteredByDays)
-  renderNotableTable(filteredWithDistanceCap, currentCountyName, currentCountyRegion, abaPillSource)
+  renderNotableTable(filtered, currentCountyName, currentCountyRegion, abaPillSource)
   if (renderMap) {
     renderNotablesOnMap(
-      isNationalSummaryMode ? [] : filteredWithDistanceCap,
+      isNationalSummaryMode ? [] : filtered,
       (currentActiveCountyCode || currentCountyRegion || '').toUpperCase(),
       fitToObservations
     )
   }
   syncFilterPillUi()
-  return filteredWithDistanceCap
+  return filtered
 }
 
 function setPillExpandedLabel(pill, prefix) {
@@ -1872,10 +1895,9 @@ function setTableRenderStatus(message) {
 
 function updateStatPills(total, confirmed, pending) {
   // Confirmed/pending pills removed; keep function as a harmless no-op.
-  if (topAbaPills) topAbaPills.innerHTML = ''
 }
 
-function renderAbaStatPills(sorted) {
+function renderAbaStatPills(sorted, totalCount = null) {
   if (!topAbaPills && !pickerAbaPills && !statePickerAbaPills) return
   const counts = new Map()
   sorted.forEach((item) => {
@@ -1883,8 +1905,11 @@ function renderAbaStatPills(sorted) {
     if (code !== null) counts.set(code, (counts.get(code) || 0) + 1)
   })
 
-  const orderedCodes = [1, 2, 3, 4, 5]
-  const html = orderedCodes
+  const orderedCodes = [1, 2, 3, 4, 5, 6]
+  const totalHtml = totalCount !== null
+    ? `<span class="stat-aba-pill stat-aba-pill-total" title="Total rows in table">${Number(totalCount) || 0}</span>`
+    : ''
+  const html = totalHtml + orderedCodes
     .map((c) => {
       const count = counts.get(c) || 0
       const isActive = Number.isFinite(Number(selectedAbaCode)) && Number(selectedAbaCode) === c
@@ -2166,7 +2191,7 @@ async function checkApi() {
     buildInfo.textContent = `Build: ${BUILD_TAG}`
   }
   try {
-    const data = await fetchWorkerHealth()
+    const data = await fetchWorkerHealth(getStoredEbirdApiKey())
     apiStatus.className = 'badge ok'
     apiStatus.textContent = 'Connected'
     apiDetail.textContent = `Endpoint: ${API_BASE_URL} · Regions loaded: ${Array.isArray(data) ? data.length : 0} · Build ${BUILD_TAG}`
@@ -2180,11 +2205,119 @@ async function checkApi() {
   }
 }
 
+function normalizeEbirdApiKey(value) {
+  return String(value || '').trim()
+}
+
+function getStoredEbirdApiKey() {
+  try {
+    const raw = sessionStorage.getItem(EBIRD_API_KEY_STORAGE_KEY)
+    const key = normalizeEbirdApiKey(raw)
+    return key || null
+  } catch {
+    return null
+  }
+}
+
+function setStoredEbirdApiKey(value) {
+  const key = normalizeEbirdApiKey(value)
+  if (!key) return false
+  try {
+    sessionStorage.setItem(EBIRD_API_KEY_STORAGE_KEY, key)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function maybeSeedEbirdApiKeyFromUrl() {
+  const url = new URL(window.location.href)
+  const candidates = ['ebird_api_key', 'ebirdKey', 'api_key']
+  let seeded = false
+  for (const name of candidates) {
+    const v = url.searchParams.get(name)
+    if (!v) continue
+    if (setStoredEbirdApiKey(v)) seeded = true
+    url.searchParams.delete(name)
+  }
+  if (seeded) {
+    window.history.replaceState({}, '', url.toString())
+  }
+  return seeded
+}
+
+function showApiKeyGate(message = '') {
+  if (!apiKeyGate) return
+  if (apiKeyError) apiKeyError.textContent = message
+  setApiKeyInputVisibility(false)
+  apiKeyGate.removeAttribute('hidden')
+  window.setTimeout(() => {
+    try { apiKeyInput?.focus() } catch { /* ignore */ }
+  }, 50)
+}
+
+function hideApiKeyGate() {
+  if (!apiKeyGate) return
+  apiKeyGate.setAttribute('hidden', 'hidden')
+  if (apiKeyError) apiKeyError.textContent = ''
+}
+
+const EYE_ICON_SVG = `
+  <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"></path>
+    <circle cx="12" cy="12" r="3"></circle>
+  </svg>
+`
+
+const EYE_OFF_ICON_SVG = `
+  <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2 12s3.5-7 10-7c1.2 0 2.3.2 3.2.6"></path>
+    <path d="M22 12s-3.5 7-10 7c-1.2 0-2.3-.2-3.2-.6"></path>
+    <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"></path>
+    <path d="M3 3l18 18"></path>
+  </svg>
+`
+
+function setApiKeyInputVisibility(visible) {
+  const show = Boolean(visible)
+  if (apiKeyInput) apiKeyInput.type = show ? 'text' : 'password'
+  if (apiKeyToggleBtn) {
+    apiKeyToggleBtn.setAttribute('aria-pressed', show ? 'true' : 'false')
+    apiKeyToggleBtn.setAttribute('aria-label', show ? 'Hide API key' : 'Show API key')
+    apiKeyToggleBtn.title = show ? 'Hide API key' : 'Show API key'
+    apiKeyToggleBtn.innerHTML = show ? EYE_OFF_ICON_SVG : EYE_ICON_SVG
+  }
+}
+
+function shouldSendEbirdTokenHeader(urlString) {
+  try {
+    const base = new URL(API_BASE_URL, window.location.href)
+    const resolved = new URL(urlString, window.location.href)
+    if (resolved.origin !== base.origin) return false
+    const basePath = String(base.pathname || '').replace(/\/$/, '')
+    return resolved.pathname.startsWith(`${basePath}/api/`)
+  } catch {
+    return false
+  }
+}
+
+function buildWorkerAuthHeaders(urlString) {
+  const key = getStoredEbirdApiKey()
+  if (!key) return {}
+  if (!shouldSendEbirdTokenHeader(urlString)) return {}
+  return { 'X-eBirdApiToken': key }
+}
+
 async function fetchWithTimeout(url, timeoutMs = API_TIMEOUT_MS) {
   const controller = new AbortController()
   const timer = window.setTimeout(() => controller.abort(), timeoutMs)
   try {
-    return await fetch(url, { cache: 'no-store', signal: controller.signal })
+    const headers = buildWorkerAuthHeaders(url)
+    const response = await fetch(url, { cache: 'no-store', signal: controller.signal, headers })
+    if (response.status === 401) {
+      showApiKeyGate('API key required. Get a key from https://ebird.org/api/keygen and paste it here.')
+    }
+    return response
   } catch (error) {
     if (error?.name === 'AbortError') {
       throw new Error(`Request timed out after ${Math.round(timeoutMs / 1000)}s`)
@@ -2972,7 +3105,9 @@ function buildGroupedRowsFromObservations(observations) {
 
 function renderNotableTable(observations, countyName, regionCode, abaPillObservations = observations) {
   setTableRenderStatus('table-start')
+  lastTableObservationSource = Array.isArray(observations) ? observations : []
   notableRows.innerHTML = ''
+  const previousRegion = String(notableMeta?.dataset?.regionCode || '').toUpperCase()
   notableMeta.textContent = `${countyName || 'County'} · ${regionCode || ''}`.trim()
   notableMeta.dataset.regionCode = regionCode || ''
 
@@ -2987,18 +3122,22 @@ function renderNotableTable(observations, countyName, regionCode, abaPillObserva
   // For state selection, render the normal species table (same as county mode)
   // but sort by distance from the user's county (fallback: GPS / map center).
   const stateDistanceAnchor = isStateRegion ? getDistanceAnchorPoint() : null
-  const STATE_DISTANCE_CAP_MI = 50
-  const STATE_DISTANCE_CAP_KM = STATE_DISTANCE_CAP_MI * 1.60934
 
   const abaPillGrouped = buildGroupedRowsFromObservations(abaPillObservations)
-  renderAbaStatPills(Array.from(abaPillGrouped.values()))
 
   if (!Array.isArray(observations) || observations.length === 0) {
     notableCount.className = 'badge ok'
     notableCount.textContent = '0'
     updateStatPills('0', '0', '0')
-    renderAbaStatPills(Array.from(abaPillGrouped.values()))
-    notableRows.innerHTML = '<tr><td colspan="7">No notable observations found for this county.</td></tr>'
+    renderAbaStatPills(Array.from(abaPillGrouped.values()), 0)
+    const activeAba = Number.isFinite(Number(selectedAbaCode)) ? Math.round(Number(selectedAbaCode)) : null
+    const days = Math.max(1, Math.min(14, Number(filterDaysBack) || 7))
+    const emptyMessage = activeAba
+      ? `No records for ABA ${activeAba} species in past ${days} days.`
+      : isStateRegion
+        ? 'No notable observations found for this state.'
+        : 'No notable observations found for this county.'
+    notableRows.innerHTML = `<tr><td colspan="7">${emptyMessage}</td></tr>`
     setTableRenderStatus('table-empty')
     return
   }
@@ -3006,23 +3145,29 @@ function renderNotableTable(observations, countyName, regionCode, abaPillObserva
   // Group by species+county (matching desktop renderSightingsTable)
   const grouped = buildGroupedRowsFromObservations(observations)
 
-  // Default county-mode sort: ABA descending, then state/county/date.
-  // State-mode sort: nearest first (distance), then ABA desc, then last desc.
-  let sorted = Array.from(grouped.values())
-  if (isStateRegion && stateDistanceAnchor) {
-    const closestByKey = computeClosestPointByGroup(observations, stateDistanceAnchor.lat, stateDistanceAnchor.lng)
-    sorted.forEach((row) => {
+  // Make distance-based sorting available in any view where we have an anchor.
+  const distanceAnchor = getDistanceAnchorPoint()
+  if (distanceAnchor && Number.isFinite(distanceAnchor.lat) && Number.isFinite(distanceAnchor.lng)) {
+    const closestByKey = computeClosestPointByGroup(observations, distanceAnchor.lat, distanceAnchor.lng)
+    grouped.forEach((row) => {
       const closest = closestByKey.get(row.groupKey)
       if (closest) {
         row.distanceKm = closest.distanceKm
         row.lat = closest.lat
         row.lng = closest.lng
-      } else {
-        row.distanceKm = Infinity
       }
     })
+  }
+
+  // Default county-mode sort: ABA descending, then state/county/date.
+  // State-mode sort: nearest first (distance), then ABA desc, then last desc.
+  let sorted = Array.from(grouped.values())
+  if (isStateRegion && stateDistanceAnchor) {
+    sorted.forEach((row) => {
+      if (!Number.isFinite(row.distanceKm)) row.distanceKm = Infinity
+    })
     sorted = sorted
-      .filter((row) => Number.isFinite(row.distanceKm) && row.distanceKm <= STATE_DISTANCE_CAP_KM)
+      .filter((row) => Number.isFinite(row.distanceKm))
       .sort((a, b) => {
         const aDist = Number.isFinite(a.distanceKm) ? a.distanceKm : Infinity
         const bDist = Number.isFinite(b.distanceKm) ? b.distanceKm : Infinity
@@ -3036,11 +3181,12 @@ function renderNotableTable(observations, countyName, regionCode, abaPillObserva
         return String(a.species || '').localeCompare(String(b.species || ''))
       })
 
-    // Ensure subsequent sorts start from a sensible state-mode default.
-    sortState = { col: 'distance', dir: 'asc' }
-    notableMeta.textContent = `${countyName || normalizedRegion} · ${normalizedRegion} · within ${STATE_DISTANCE_CAP_MI}mi`
+    // Default to distance sort when entering state mode.
+    if (!/^US-[A-Z]{2}$/.test(previousRegion) && sortState.col !== 'distance') {
+      sortState = { col: 'distance', dir: 'asc' }
+    }
+    notableMeta.textContent = `${countyName || normalizedRegion} · ${normalizedRegion}`
   } else {
-    if (sortState.col === 'distance') sortState = { col: 'aba', dir: 'desc' }
     sorted = sorted.sort((a, b) => {
       const aCode = Number.isFinite(a.abaCode) ? a.abaCode : -1
       const bCode = Number.isFinite(b.abaCode) ? b.abaCode : -1
@@ -3059,7 +3205,7 @@ function renderNotableTable(observations, countyName, regionCode, abaPillObserva
   notableCount.textContent = String(sorted.length)
   const confirmedCount = sorted.filter((r) => r.confirmedAny).length
   updateStatPills(sorted.length, confirmedCount, sorted.length - confirmedCount)
-  renderAbaStatPills(Array.from(abaPillGrouped.values()))
+  renderAbaStatPills(Array.from(abaPillGrouped.values()), sorted.length)
   currentTableData = sorted
   applySortAndRender()
 }
@@ -3166,7 +3312,7 @@ function renderStateCountySummaryTable(observations, countyName, stateRegion, ab
   notableMeta.dataset.regionCode = stateRegion || ''
 
   const abaPillGrouped = buildGroupedRowsFromObservations(abaPillObservations)
-  renderAbaStatPills(Array.from(abaPillGrouped.values()))
+  renderAbaStatPills(Array.from(abaPillGrouped.values()), stateRows.length)
 
   if (!stateRows.length) {
     notableCount.className = 'badge ok'
@@ -3323,7 +3469,42 @@ function applySortAndRender() {
       th.classList.remove('sort-active')
     }
   })
+  updateSortModeBtnUi()
   setTableRenderStatus(`sorted:${col}:${dir} rows=${data.length}`)
+}
+
+function updateSortModeBtnUi() {
+  if (!sortModeBtn) return
+  const isDistance = sortState?.col === 'distance'
+  const label = sortModeBtn.querySelector('.sort-toggle-label')
+  if (label) label.textContent = isDistance ? 'distance' : 'ABA'
+  sortModeBtn.setAttribute('aria-pressed', isDistance ? 'true' : 'false')
+  sortModeBtn.classList.toggle('is-active', isDistance)
+  sortModeBtn.title = isDistance
+    ? 'Sort: Distance (tap for ABA)'
+    : 'Sort: ABA (tap for distance)'
+}
+
+function ensureDistanceKmForCurrentTableData() {
+  if (!Array.isArray(currentTableData) || currentTableData.length === 0) return
+  const anchor = getDistanceAnchorPoint()
+  if (!anchor || !Number.isFinite(anchor.lat) || !Number.isFinite(anchor.lng)) return
+
+  const closestByKey = computeClosestPointByGroup(lastTableObservationSource, anchor.lat, anchor.lng)
+  currentTableData.forEach((row) => {
+    const closest = closestByKey.get(row.groupKey)
+    if (closest) {
+      row.distanceKm = closest.distanceKm
+      row.lat = closest.lat
+      row.lng = closest.lng
+      return
+    }
+    if (Number.isFinite(row.lat) && Number.isFinite(row.lng)) {
+      row.distanceKm = distanceKm(anchor.lat, anchor.lng, row.lat, row.lng)
+    } else {
+      row.distanceKm = Infinity
+    }
+  })
 }
 
 function setActiveSortCountyRegion(nextRegion) {
@@ -4640,10 +4821,10 @@ function activateAbaPill(pill) {
   const parsedCode = Number(pill.dataset.code)
   if (!Number.isFinite(parsedCode)) return
   const code = Math.round(parsedCode)
-  if (code < 1 || code > 5) return
+  if (code < 1 || code > 6) return
   const current = Number.isFinite(Number(selectedAbaCode)) ? Math.round(Number(selectedAbaCode)) : null
   selectedAbaCode = current === code ? null : code
-  applyActiveFiltersAndRender()
+  applyActiveFiltersAndRender({ allowAutoRecovery: false })
 }
 
 function bindAbaPillContainer(container) {
@@ -4677,7 +4858,7 @@ abaCodePickerList?.addEventListener('click', (event) => {
     const parsedCode = Number(option.value)
     selectedAbaCode = Number.isFinite(parsedCode) ? Math.round(parsedCode) : null
   }
-  applyActiveFiltersAndRender()
+  applyActiveFiltersAndRender({ allowAutoRecovery: false })
   closeAbaCodePicker()
 })
 
@@ -4798,6 +4979,16 @@ document.querySelector('.notable-table thead').addEventListener('click', (event)
   applySortAndRender()
 })
 
+sortModeBtn?.addEventListener('click', () => {
+  if (sortState.col === 'distance') {
+    sortState = { col: 'aba', dir: 'desc' }
+  } else {
+    sortState = { col: 'distance', dir: 'asc' }
+    ensureDistanceKmForCurrentTableData()
+  }
+  applySortAndRender()
+})
+
 notableRows.addEventListener('change', (event) => {
   const cb = event.target.closest('.obs-vis-cb')
   if (!cb) return
@@ -4830,10 +5021,16 @@ document.querySelector('#toggleAllVis')?.addEventListener('change', (event) => {
 })
 
 setMode('map')
-checkApi()
 
-// On startup, request current location (GPS). If unavailable, default to Yolo County, CA.
-;(async () => {
+let appBooted = false
+
+async function bootAppOnce() {
+  if (appBooted) return
+  appBooted = true
+
+  hideApiKeyGate()
+  await checkApi()
+
   const launchUrl = new URL(window.location.href)
   const forceFreshLocation = launchUrl.searchParams.get('force_location') === '1'
   if (forceFreshLocation) {
@@ -4888,7 +5085,54 @@ checkApi()
   if (!forceFreshLocation) {
     await startFromDefaultCounty('no location')
   }
-})()
+}
+
+function ensureApiKeyOrGate() {
+  maybeSeedEbirdApiKeyFromUrl()
+  const key = getStoredEbirdApiKey()
+  if (key) {
+    void bootAppOnce()
+    return true
+  }
+  showApiKeyGate('')
+  return false
+}
+
+apiKeyOpenBtn?.addEventListener('click', () => {
+  window.open('https://ebird.org/api/keygen', '_blank', 'noopener,noreferrer')
+})
+
+apiKeyToggleBtn?.addEventListener('click', () => {
+  const currentlyText = apiKeyInput?.type === 'text'
+  setApiKeyInputVisibility(!currentlyText)
+  try { apiKeyInput?.focus() } catch { /* ignore */ }
+})
+
+apiKeySaveBtn?.addEventListener('click', () => {
+  const key = normalizeEbirdApiKey(apiKeyInput?.value)
+  if (!key) {
+    if (apiKeyError) apiKeyError.textContent = 'Paste your eBird API key to continue.'
+    return
+  }
+  const ok = setStoredEbirdApiKey(key)
+  if (!ok) {
+    if (apiKeyError) apiKeyError.textContent = 'Could not save API key (storage blocked?).'
+    return
+  }
+  if (apiKeyError) apiKeyError.textContent = ''
+  hideApiKeyGate()
+  void bootAppOnce()
+})
+
+apiKeyInput?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    apiKeySaveBtn?.click()
+  }
+})
+
+// Gate startup on API key.
+ensureApiKeyOrGate()
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {
