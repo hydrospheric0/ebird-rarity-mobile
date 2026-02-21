@@ -2571,7 +2571,19 @@ function parseObsDate(obsDt) {
 
 function formatShortDate(date) {
   if (!date) return ''
-  return `${date.getMonth() + 1}/${date.getDate()}`
+  const mo = date.getMonth() + 1
+  const day = date.getDate()
+  const h = date.getHours()
+  const m = date.getMinutes()
+
+  // If the source was a date-only string, we parse as local midnight.
+  // Keep those compact (M/D) to avoid confusing 12:00a timestamps.
+  if (h === 0 && m === 0) return `${mo}/${day}`
+
+  const mm = String(m).padStart(2, '0')
+  const ampm = h >= 12 ? 'p' : 'a'
+  const h12 = h % 12 || 12
+  return `${mo}/${day} ${h12}:${mm}${ampm}`
 }
 
 function formatObsDateTime(obsDt) {
