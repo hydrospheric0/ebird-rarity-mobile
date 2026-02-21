@@ -1252,6 +1252,14 @@ function switchToCountyOption(option) {
   void loadNeighborCounty(option.lat, option.lng, option.countyRegion, option.countyName)
 }
 
+function resetFiltersForCountySwitch() {
+  selectedSpecies = null
+  selectedReviewFilter = null
+  selectedAbaCode = null
+  updateFilterUi()
+  syncFilterPillUi()
+}
+
 function switchCountyFromMapTap(countyRegion, lat = null, lng = null, countyName = '', source = 'map') {
   logTapResolution('tap-enter', {
     source,
@@ -1329,12 +1337,9 @@ function switchCountyFromMapTap(countyRegion, lat = null, lng = null, countyName
     lng: resolvedLng,
     detail: option ? 'using picker option center' : 'using tap coordinates',
   })
-  void loadNeighborCounty(
-    resolvedLat,
-    resolvedLng,
-    region,
-    resolvedName
-  )
+  // Route through the same activation path as the dropdown so the header county
+  // UI stays in sync.
+  activateCountyByRegion(region, resolvedLat, resolvedLng, resolvedName)
 }
 
 function normalizeCountyName(value) {
@@ -1389,6 +1394,7 @@ function activateCountyFromOption(option) {
   const region = String(option.countyRegion || '').toUpperCase()
   if (!region) {
     if (Number.isFinite(Number(option.lat)) && Number.isFinite(Number(option.lng))) {
+      resetFiltersForCountySwitch()
       void loadNeighborCounty(Number(option.lat), Number(option.lng), null, option.countyName || '')
     }
     return
@@ -1411,6 +1417,8 @@ function activateCountyFromOption(option) {
     activeSortCountyRegion = region
   }
   const resolvedOption = countyPickerOptions.find((opt) => String(opt.countyRegion || '').toUpperCase() === region) || option
+
+  resetFiltersForCountySwitch()
   switchToCountyOption(resolvedOption)
 }
 
@@ -1783,13 +1791,14 @@ function initializeMap() {
   map.getPane('countyMaskPane').style.zIndex = '380'
   map.getPane('countyMaskPane').style.pointerEvents = 'none'
   map.createPane('countyNeighborPane')
-  map.getPane('countyNeighborPane').style.zIndex = '390'
+  // Keep outlines above the mask (and above label tiles) for visibility.
+  map.getPane('countyNeighborPane').style.zIndex = '417'
   map.getPane('countyNeighborPane').style.pointerEvents = 'auto'
   map.createPane('countyDotPane')
   map.getPane('countyDotPane').style.zIndex = '405'
   map.getPane('countyDotPane').style.pointerEvents = 'auto'
   map.createPane('activeCountyPane')
-  map.getPane('activeCountyPane').style.zIndex = '410'
+  map.getPane('activeCountyPane').style.zIndex = '418'
   map.createPane('countyNamePane')
   map.getPane('countyNamePane').style.zIndex = '416'
   map.getPane('countyNamePane').style.pointerEvents = 'none'
