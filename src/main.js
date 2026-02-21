@@ -173,7 +173,7 @@ app.innerHTML = `
     </div>
 
     <div id="searchPopover" class="menu-popover" hidden>
-      <div class="menu-popover-card" role="dialog" aria-modal="true" aria-labelledby="searchMenuTitle">
+      <div class="menu-popover-card menu-popover-card--search" role="dialog" aria-modal="true" aria-labelledby="searchMenuTitle">
         <div id="searchMenuTitle" class="menu-popover-title">Search</div>
         <label class="menu-popover-field" for="searchRegionSelect">
           <span>Region:</span>
@@ -1226,7 +1226,9 @@ function refreshHeaderCountyOptions() {
   options.forEach((opt, index) => {
     const optionEl = document.createElement('option')
     optionEl.value = String(opt.countyRegion || '')
-    optionEl.textContent = String(opt.countyName || 'Unknown county')
+    const name = String(opt.countyName || 'Unknown county')
+    const code = String(opt.countyRegion || '').toUpperCase()
+    optionEl.textContent = code ? `${name} (${code})` : name
     optionEl.dataset.index = String(index)
     headerCountySelect.appendChild(optionEl)
   })
@@ -1480,7 +1482,10 @@ function applySearchCountyEntries(entries) {
     '<option value="">All counties</option>',
     ...list.map((entry) => {
       const selected = selectedCounty && selectedCounty === entry.countyRegion
-      return `<option value="${escapeHtml(entry.countyRegion)}" ${selected ? 'selected' : ''}>${escapeHtml(entry.countyName)}</option>`
+      const label = entry.countyRegion
+        ? `${entry.countyName} (${String(entry.countyRegion).toUpperCase()})`
+        : entry.countyName
+      return `<option value="${escapeHtml(entry.countyRegion)}" ${selected ? 'selected' : ''}>${escapeHtml(label)}</option>`
     }),
   ].join('')
   searchCountySelect.disabled = false
@@ -1543,7 +1548,9 @@ async function ensureSearchCountyOptionsForState(stateRegion) {
   }
 
   const fromCurrent = buildStateCountyEntries(currentRawObservations, normalizedState)
-  if (fromCurrent.length > 0) {
+  // If we're currently in a single-county view, currentRawObservations only contains one county,
+  // so we still want a full county list for the search menu.
+  if (fromCurrent.length > 1) {
     if (requestId !== latestSearchCountyOptionsRequestId) return
     stateCountyOptionsCache.set(normalizedState, fromCurrent)
     applySearchCountyEntries(fromCurrent)
@@ -2291,7 +2298,8 @@ function setLocationUiBlocked() {
 
 function updateUserLocationOnMap(latitude, longitude, accuracyMeters) {
   initializeMap()
-  const safeAccuracy = Number.isFinite(accuracyMeters) && accuracyMeters > 0 ? accuracyMeters : 750
+  const hasAccuracy = Number.isFinite(accuracyMeters) && accuracyMeters > 0
+  const safeAccuracy = hasAccuracy ? accuracyMeters : null
 
   if (!userDot) {
     userDot = L.circleMarker([latitude, longitude], {
@@ -2306,7 +2314,12 @@ function updateUserLocationOnMap(latitude, longitude, accuracyMeters) {
     userDot.setLatLng([latitude, longitude])
   }
 
-  if (!accuracyCircle) {
+  if (!hasAccuracy) {
+    if (accuracyCircle) {
+      accuracyCircle.remove()
+      accuracyCircle = null
+    }
+  } else if (!accuracyCircle) {
     accuracyCircle = L.circle([latitude, longitude], {
       radius: safeAccuracy,
       color: '#009688',
@@ -3075,6 +3088,16 @@ function buildObservationPopupHtml(pt) {
   const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${pt.lat},${pt.lng}`)}`
   const speciesEl = `<span class="obs-popup-species">${pt.safeSpecies}</span>`
   const header = `<div class="obs-popup-header">${abaBadge}${speciesEl}<a class="obs-popup-mapit" href="${mapsUrl}" target="_blank" rel="noopener" title="Map it">&#x1F4CD;</a></div>`
+
+  const countyRaw = item?.subnational2Name ? String(item.subnational2Name) : ''
+  const stateRaw = item?.subnational1Code ? String(item.subnational1Code) : ''
+  const stateAbbrev = stateRaw.toUpperCase().startsWith('US-') ? stateRaw.toUpperCase().slice(3) : stateRaw.toUpperCase()
+  let countyDisplay = countyRaw.trim()
+  if (countyDisplay && !/county\s*$/i.test(countyDisplay)) countyDisplay = `${countyDisplay} County`
+  const countyStateLine = (countyDisplay && stateAbbrev)
+    ? `<div class="obs-popup-county">${escapeHtml(`${countyDisplay}, ${stateAbbrev}`)}</div>`
+    : ''
+
   const locationLine = locName
     ? (locId
       ? `<a class="obs-popup-location" href="https://ebird.org/hotspot/${encodeURIComponent(locId)}" target="_blank" rel="noopener" title="${escapeHtml(locName)}">${escapeHtml(locName)}</a>`
@@ -3089,7 +3112,7 @@ function buildObservationPopupHtml(pt) {
     ? `<ul class="obs-popup-checklist">${checklistItems.join('')}</ul>`
     : ''
 
-  return `<div class="obs-popup-inner">${header}${locationLine}${checklistSection}</div>`
+  return `<div class="obs-popup-inner">${header}${countyStateLine}${locationLine}${checklistSection}</div>`
 }
 
 function openObservationPopup(pt) {
@@ -3919,18 +3942,6 @@ headerDaysBackSelect?.addEventListener('change', (event) => {
   updateFilterUi()
   applyActiveFiltersAndRender({ fitToObservations: true })
 })
-headerCountySelect?.addEventListener('pointerdown', (event) => {
-  if (!countyPickerOptions.length) return
-  event.preventDefault()
-  toggleCountyPicker()
-})
-headerCountySelect?.addEventListener('keydown', (event) => {
-  if (!countyPickerOptions.length) return
-  if (event.key === 'Enter' || event.key === ' ' || event.key === 'ArrowDown') {
-    event.preventDefault()
-    toggleCountyPicker()
-  }
-})
 headerCountySelect?.addEventListener('change', (event) => {
   const selectEl = event.target
   const selectedOptionEl = selectEl?.options?.[selectEl.selectedIndex] || null
@@ -4353,8 +4364,14 @@ checkApi()
         locationDetail.textContent = `Lat ${lat.toFixed(5)}, Lon ${lng.toFixed(5)} · cached`
         resetMapLoadState()
         updateUserLocationOnMap(lat, lng, null)
+        const cachedGeoJson = loadCountyContextCache(lat, lng)
+        const cachedActiveFeature = Array.isArray(cachedGeoJson?.features)
+          ? cachedGeoJson.features.find((f) => f?.properties?.isActiveCounty)
+          : null
+        const cachedCountyRegion = cachedActiveFeature?.properties?.countyRegion || cachedGeoJson?.activeCountyRegion || null
+
         const countyContextPromise = updateCountyForLocation(lat, lng, requestId)
-        const notablesPromise = loadCountyNotables(lat, lng, null, requestId, null, false)
+        const notablesPromise = loadCountyNotables(lat, lng, cachedCountyRegion, requestId, null, false)
         const countyContext = await countyContextPromise
         if (!isStaleLocationRequest(requestId)) {
           locationStatus.className = 'badge ok'
@@ -4363,6 +4380,10 @@ checkApi()
           if (countyContext?.countyLabel) {
             locationDetail.textContent += ` · ${countyContext.countyLabel}`
             if (mapCountyLabel) { mapCountyLabel.textContent = countyContext.countyLabel; mapCountyLabel.removeAttribute('hidden') }
+          }
+          const regionForZoom = String(countyContext?.countyRegion || cachedCountyRegion || '').toUpperCase() || null
+          if (regionForZoom) {
+            zoomToActiveCounty(latestCountyContextGeojson, regionForZoom)
           }
         }
         await notablesPromise
