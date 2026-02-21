@@ -817,14 +817,35 @@ body {
 
 .notable-table .col-date {
   white-space: nowrap;
-  width: 2.9rem;
+  width: 2.45rem;
 }
+
+/* Keep a small visual gap between Last/First date bubbles in tight layouts */
+.notable-table tbody td:nth-child(2) { padding-right: 0.34rem; }
+.notable-table tbody td:nth-child(3) { padding-left: 0.34rem; }
 
 .notable-table .col-reports {
   text-align: right;
-  width: 0.9rem;
+  width: 1.35rem;
   padding-right: 0.2rem;
 }
+
+.count-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.05rem;
+  padding: 0.08rem 0.32rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 800;
+  line-height: 1;
+  color: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.15);
+}
+
+.count-pill-confirmed { background: #22c55e; }
+.count-pill-pending   { background: #f97316; }
 
 .species-cell {
   display: inline-flex;
@@ -862,7 +883,7 @@ tr.row-highlighted {
 
 .date-bubble {
   display: inline-block;
-  padding: 0px 4px;
+  padding: 0px 3px;
   border-radius: 999px;
   font-size: 0.66rem;
   font-weight: 400;
@@ -893,6 +914,12 @@ tr.row-highlighted {
   background: rgba(254, 249, 195, 0.52);
   border-color: rgba(250, 204, 21, 0.35);
   color: #713f12;
+}
+
+.date-bubble-red-new {
+  background: rgba(237, 19, 19, 0.14);
+  border-color: rgba(237, 19, 19, 0.35);
+  color: #7f1d1d;
 }
 
 .status-dot {

@@ -104,7 +104,6 @@ app.innerHTML = `
               <thead>
                 <tr>
                   <th class="col-species sortable" id="thSpecies" data-sort="aba">Species<span class="sort-icon" aria-hidden="true"> ↓</span></th>
-                  <th class="col-status"></th>
                   <th class="col-date sortable" id="thLast" data-sort="last">Last<span class="sort-icon" aria-hidden="true"></span></th>
                   <th class="col-date sortable" id="thFirst" data-sort="first">First<span class="sort-icon" aria-hidden="true"></span></th>
                   <th class="col-reports">#</th>
@@ -468,7 +467,7 @@ function armUiFailsafeTimer() {
         notableCount.textContent = '0'
       }
       if (notableMeta) notableMeta.textContent = 'Recovered from a stuck loading state'
-      if (notableRows) notableRows.innerHTML = '<tr><td colspan="7">A stuck loading operation was reset. Try your action again.</td></tr>'
+      if (notableRows) notableRows.innerHTML = '<tr><td colspan="6">A stuck loading operation was reset. Try your action again.</td></tr>'
       updateStatPills('0', '0', '0')
       setTableRenderStatus('failsafe-watchdog-reset')
     }
@@ -1734,7 +1733,7 @@ function setNotablesUnavailableState(metaMessage, rowMessage, statusMessage = 'n
   notableCount.textContent = '0'
   notableMeta.textContent = metaMessage
   updateStatPills('—', '—', '—')
-  notableRows.innerHTML = `<tr><td colspan="7">${rowMessage}</td></tr>`
+  notableRows.innerHTML = `<tr><td colspan="6">${rowMessage}</td></tr>`
   setTableRenderStatus(statusMessage)
 }
 
@@ -2577,6 +2576,9 @@ function dayOffsetFromToday(date) {
 
 function getDateBubbleClass(kind, firstDate, lastDate) {
   const targetDate = kind === 'first' ? firstDate : lastDate
+  const firstOffset = dayOffsetFromToday(firstDate)
+  const lastOffset = dayOffsetFromToday(lastDate)
+  if (firstOffset === 0 && lastOffset === 0) return 'date-bubble-red-new'
   const offset = dayOffsetFromToday(targetDate)
   if (offset === 0) return 'date-bubble-green-dark'
   if (offset === 1) return 'date-bubble-green-light'
@@ -2717,7 +2719,7 @@ function renderNotableTable(observations, countyName, regionCode, abaPillObserva
     notableCount.textContent = '0'
     updateStatPills('0', '0', '0')
     renderAbaStatPills(Array.from(abaPillGrouped.values()))
-    notableRows.innerHTML = '<tr><td colspan="7">No notable observations found for this county.</td></tr>'
+    notableRows.innerHTML = '<tr><td colspan="6">No notable observations found for this county.</td></tr>'
     setTableRenderStatus('table-empty')
     return
   }
@@ -2836,7 +2838,7 @@ function renderStateCountySummaryTable(observations, countyName, stateRegion, ab
     notableCount.className = 'badge ok'
     notableCount.textContent = '0'
     updateStatPills('0', '0', '0')
-    notableRows.innerHTML = `<tr><td colspan="7">No ${isUS ? 'state' : 'county'} summaries found for this region and filter set.</td></tr>`
+    notableRows.innerHTML = `<tr><td colspan="6">No ${isUS ? 'state' : 'county'} summaries found for this region and filter set.</td></tr>`
     currentTableData = []
     setTableRenderStatus('state-summary-empty')
     return
@@ -2854,7 +2856,8 @@ function renderStateCountySummaryTable(observations, countyName, stateRegion, ab
   stateRows.forEach((row) => {
     const lastBubble = renderDateBubble(formatShortDate(row.last), getDateBubbleClass('last', row.first, row.last))
     const firstBubble = renderDateBubble(formatShortDate(row.first), getDateBubbleClass('first', row.first, row.last))
-    const statusDot = renderStatusDot(row.confirmedCount > 0)
+    const isConfirmed = row.confirmedCount > 0
+    const countPill = `<span class="count-pill ${isConfirmed ? 'count-pill-confirmed' : 'count-pill-pending'}" title="${isConfirmed ? 'Confirmed' : 'Pending'}">${row.rarityCount}</span>`
     const pinHtml = (row.lat != null && row.lng != null)
       ? `<button type="button" class="row-pin-btn" data-lat="${row.lat}" data-lng="${row.lng}" title="Open in Google Maps">📍</button>`
       : ''
@@ -2864,10 +2867,9 @@ function renderStateCountySummaryTable(observations, countyName, stateRegion, ab
     tableRow.dataset.county = String(row.countyName || '')
     tableRow.innerHTML = `
       <td><div class="species-cell"><button type="button" class="county-summary-btn" data-county-region="${escapeHtml(row.countyRegion)}">${escapeHtml(row.countyName)}</button><span class="county-option-meta">${escapeHtml(formatCountySummary(row.summary))}</span></div></td>
-      <td class="col-status">${statusDot}</td>
       <td>${lastBubble}</td>
       <td>${firstBubble}</td>
-      <td>${row.rarityCount}</td>
+      <td class="col-reports">${countPill}</td>
       <td class="col-vis"></td>
       <td class="col-pin">${pinHtml}</td>
     `
@@ -2904,7 +2906,8 @@ function applySortAndRender() {
     const abaBadge = renderAbaCodeBadge(item.abaCode)
     const yoloBadge = isYolo ? renderYoloCodeBadge(item.species, item.abaCode) : ''
     const statusBullets = isYolo ? renderSpeciesStatusBullets(item.species) : ''
-    const statusDot = renderStatusDot(Boolean(item.confirmedAny))
+    const isConfirmed = Boolean(item.confirmedAny)
+    const countPill = `<span class="count-pill ${isConfirmed ? 'count-pill-confirmed' : 'count-pill-pending'}" title="${isConfirmed ? 'Confirmed' : 'Pending'}">${item.count}</span>`
     const isChecked = !hiddenSpecies.has(item.species)
     const pinHtml = (item.lat != null && item.lng != null)
       ? `<button type="button" class="row-pin-btn" data-lat="${item.lat}" data-lng="${item.lng}" title="Open in Google Maps">📍</button>`
@@ -2916,10 +2919,9 @@ function applySortAndRender() {
     row.dataset.countyRegion = String(item.countyRegion || '').toUpperCase()
     row.innerHTML = `
       <td><div class="species-cell">${abaBadge}${yoloBadge}${statusBullets}<button type="button" class="species-btn" data-species="${safeSpecies}">${safeSpecies}</button></div></td>
-      <td class="col-status">${statusDot}</td>
       <td>${lastBubble}</td>
       <td>${firstBubble}</td>
-      <td>${item.count}</td>
+      <td class="col-reports">${countPill}</td>
       <td class="col-vis"><input type="checkbox" class="obs-vis-cb" data-species="${safeSpecies}" ${isChecked ? 'checked' : ''}></td>
       <td class="col-pin">${pinHtml}</td>
     `
@@ -3402,7 +3404,7 @@ async function loadCountyNotables(latitude, longitude, countyRegion = null, requ
   }
   if (!hadPreviousRows && !hasCachedWarm) {
     updateStatPills('…', '…', '…')
-    notableRows.innerHTML = '<tr><td colspan="7">Loading county notables…</td></tr>'
+    notableRows.innerHTML = '<tr><td colspan="6">Loading county notables…</td></tr>'
   }
 
   const loadingWatchdog = window.setTimeout(() => {
@@ -3423,7 +3425,7 @@ async function loadCountyNotables(latitude, longitude, countyRegion = null, requ
     notableCount.textContent = '0'
     notableMeta.textContent = 'County notables request timed out'
     updateStatPills('0', '0', '0')
-    notableRows.innerHTML = '<tr><td colspan="7">County notables request timed out. Try refresh or Use My Location again.</td></tr>'
+    notableRows.innerHTML = '<tr><td colspan="6">County notables request timed out. Try refresh or Use My Location again.</td></tr>'
     setTableRenderStatus('watchdog-timeout')
     markMapPartReady('observations')
   }, 9000)
@@ -3636,7 +3638,7 @@ async function loadCountyNotables(latitude, longitude, countyRegion = null, requ
     notableCount.textContent = '0'
     notableMeta.textContent = 'County notables currently unavailable'
     updateStatPills('0', '0', '0')
-    notableRows.innerHTML = '<tr><td colspan="7">No notable observations available right now.</td></tr>'
+    notableRows.innerHTML = '<tr><td colspan="6">No notable observations available right now.</td></tr>'
     setTableRenderStatus(`load-error err=${error?.message || 'unknown'}`)
     updateRuntimeLog()
   } finally {
@@ -3660,7 +3662,7 @@ async function loadCountyNotables(latitude, longitude, countyRegion = null, requ
       notableCount.textContent = '0'
       updateStatPills('0', '0', '0')
       notableMeta.textContent = 'County notables request did not complete'
-      notableRows.innerHTML = '<tr><td colspan="7">County notables request did not complete. Please try again.</td></tr>'
+      notableRows.innerHTML = '<tr><td colspan="6">County notables request did not complete. Please try again.</td></tr>'
       setTableRenderStatus('load-finalized-no-data')
     }
     markMapPartReady('observations')
@@ -3698,7 +3700,7 @@ async function loadStateNotables(stateRegion, requestId = null) {
   notableCount.textContent = 'Loading…'
   notableMeta.textContent = `Loading rarities for ${stateRegion}…`
   updateStatPills('…', '…', '…')
-  notableRows.innerHTML = '<tr><td colspan="7">Loading notables…</td></tr>'
+  notableRows.innerHTML = '<tr><td colspan="6">Loading notables…</td></tr>'
 
   try {
     const observations = await fetchRegionRarities(stateRegion, 14, 30000)
@@ -3736,7 +3738,7 @@ async function loadStateNotables(stateRegion, requestId = null) {
     notableMeta.textContent = `Error: ${error?.message || error}`
     updateStatPills('0', '0', '0')
     const safeErrorMessage = escapeHtml(error?.message || 'unknown error')
-    notableRows.innerHTML = `<tr><td colspan="7">Load failed: ${safeErrorMessage}. Tap Use My Location to retry.</td></tr>`
+    notableRows.innerHTML = `<tr><td colspan="6">Load failed: ${safeErrorMessage}. Tap Use My Location to retry.</td></tr>`
     setTableRenderStatus(`state-error: ${error?.message || ''}`)
     setMapLoading(false)
     markMapPartReady('observations')
@@ -3754,7 +3756,7 @@ async function loadNationalNotables(regionCode = US_REGION_CODE, abaMinFloor = 3
   notableCount.textContent = 'Loading…'
   notableMeta.textContent = `Loading rarities for ${normalizedRegion} (ABA ${effectiveAbaMin}+)…`
   updateStatPills('…', '…', '…')
-  notableRows.innerHTML = '<tr><td colspan="7">Loading US notables…</td></tr>'
+  notableRows.innerHTML = '<tr><td colspan="6">Loading US notables…</td></tr>'
 
   try {
     const observations = await fetchRegionRarities(normalizedRegion, filterDaysBack, 45000, { abaMin: effectiveAbaMin })
@@ -3793,7 +3795,7 @@ async function loadNationalNotables(regionCode = US_REGION_CODE, abaMinFloor = 3
     notableMeta.textContent = `Error: ${error?.message || error}`
     updateStatPills('0', '0', '0')
     const safeErrorMessage = escapeHtml(error?.message || 'unknown error')
-    notableRows.innerHTML = `<tr><td colspan="7">US load failed: ${safeErrorMessage}.</td></tr>`
+    notableRows.innerHTML = `<tr><td colspan="6">US load failed: ${safeErrorMessage}.</td></tr>`
     setTableRenderStatus(`us-error: ${error?.message || ''}`)
     setMapLoading(false)
     markMapPartReady('observations')
