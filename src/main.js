@@ -102,21 +102,7 @@ app.innerHTML = `
     <main class="app-main">
       <section id="panelMap" class="panel active">
         <section class="card table-card">
-          <div class="table-top-menu" aria-label="County and days">
-            <button id="headerStateBtn" class="top-menu-select top-menu-btn" type="button" aria-label="State" title="Choose state">CA</button>
-            <select id="headerStateSelect" class="top-menu-select" aria-label="State" hidden aria-hidden="true" tabindex="-1">
-              <option value="US-CA">California</option>
-            </select>
-            <button id="headerCountyBtn" class="top-menu-select top-menu-btn" type="button" aria-label="County" title="Choose county">Loading…</button>
-            <select id="headerCountySelect" class="top-menu-select" aria-label="County" hidden aria-hidden="true" tabindex="-1">
-              <option value="">Loading…</option>
-            </select>
-            <select id="headerDaysBackSelect" class="top-menu-select" aria-label="Days back">
-              <option value="1">1 day</option>
-              <option value="3">3 days</option>
-              <option value="7" selected>7 days</option>
-              <option value="14">14 days</option>
-            </select>
+          <div class="table-top-menu" aria-label="Sort and ABA counts">
             <button id="sortModeBtn" class="top-menu-select top-menu-btn sort-toggle-btn" type="button" aria-label="Toggle sort (ABA/distance)" aria-pressed="false" title="Sort: ABA (tap for distance)"><span class="sort-toggle-icon" aria-hidden="true">⌖</span><span class="sort-toggle-label">ABA</span></button>
             <div id="topAbaPills" class="top-aba-pills" aria-label="ABA counts"></div>
           </div>
@@ -151,6 +137,24 @@ app.innerHTML = `
               </thead>
               <tbody id="notableRows"></tbody>
             </table>
+          </div>
+          <div class="table-bottom-menu" aria-label="State, county, and days">
+            <button id="headerStateBtn" class="top-menu-select top-menu-btn" type="button" aria-label="State" title="Choose state">CA</button>
+            <select id="headerStateSelect" class="top-menu-select" aria-label="State" hidden aria-hidden="true" tabindex="-1">
+              <option value="US-CA">California</option>
+            </select>
+
+            <button id="headerCountyBtn" class="top-menu-select top-menu-btn" type="button" aria-label="County" title="Choose county">Loading…</button>
+            <select id="headerCountySelect" class="top-menu-select" aria-label="County" hidden aria-hidden="true" tabindex="-1">
+              <option value="">Loading…</option>
+            </select>
+
+            <select id="headerDaysBackSelect" class="top-menu-select" aria-label="Days back">
+              <option value="1">1 day</option>
+              <option value="3">3 days</option>
+              <option value="7" selected>7 days</option>
+              <option value="14">14 days</option>
+            </select>
           </div>
           <p id="tableRenderStatus" class="detail" style="display:none">render: init</p>
         </section>

@@ -895,6 +895,19 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
+.table-bottom-menu {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.35rem 0.55rem;
+  border-top: 1px solid var(--border);
+}
+
+.table-bottom-menu #headerCountyBtn {
+  min-width: 0;
+}
+
 .top-aba-pills {
   display: flex;
   align-items: center;
@@ -910,11 +923,6 @@ body {
   justify-content: center;
 }
 
-.table-top-menu #headerCountySelect {
-  width: auto;
-  flex: 1 1 auto;
-  min-width: 0;
-}
 
 .obs-stats-bar {
   display: flex;
