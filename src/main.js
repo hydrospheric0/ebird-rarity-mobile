@@ -6,6 +6,8 @@ import { getYoloSpeciesInfo, getSpeciesMapLabel, getAbaCodeOverride } from './da
 
 const BUILD_TAG = typeof __BUILD_TAG__ !== 'undefined' ? __BUILD_TAG__ : 'dev'
 
+const YOLO_COUNTY_REGION = 'US-CA-113'
+
 const app = document.querySelector('#app')
 
 app.innerHTML = `
@@ -115,6 +117,7 @@ app.innerHTML = `
               <tbody id="notableRows"></tbody>
             </table>
           </div>
+          <div id="neighborTables" class="neighbor-tables" hidden></div>
           <p id="tableRenderStatus" class="detail" style="display:none">render: init</p>
         </section>
       </section>
@@ -254,6 +257,7 @@ const countyPickerList = document.querySelector('#countyPickerList')
 const abaCodePicker = document.querySelector('#abaCodePicker')
 const abaCodePickerList = document.querySelector('#abaCodePickerList')
 const notableRows = document.querySelector('#notableRows')
+const neighborTables = document.querySelector('#neighborTables')
 const tableRenderStatus = document.querySelector('#tableRenderStatus')
 const perfBadge = document.querySelector('#perfBadge')
 const perfDetail = document.querySelector('#perfDetail')
@@ -291,6 +295,7 @@ let lastUserLat = null
 let lastUserLng = null
 let currentTableData = [] // all rows for re-sorting
 let sortState = { col: 'aba', dir: 'desc' } // col: 'aba'|'last'|'first', dir: 'asc'|'desc'
+let activeSortCountyRegion = YOLO_COUNTY_REGION
 let latestLocationRequestId = 0
 let latestNotablesLoadId = 0
 let latestCountySwitchRequestId = 0
@@ -301,6 +306,7 @@ const hiResCache = new Map() // countyRegion -> GeoJSON FeatureCollection
 let hiResSwapInProgress = false
 let currentActiveCountyCode = ''
 let latestCountyContextGeojson = null
+const neighborCountyRegionsCache = new Map() // activeCountyRegion -> string[]
 let filterDaysBack = 7
 let filterAbaMin = 1
 let selectedReviewFilter = null
@@ -1418,6 +1424,10 @@ function activateCountyFromOption(option) {
     const fallbackName = option.countyName || 'County'
     headerCountyBtn.textContent = selectedOpt?.textContent || String(fallbackName)
   }
+
+  if (isCountyRegionCode(region)) {
+    activeSortCountyRegion = region
+  }
   const resolvedOption = countyPickerOptions.find((opt) => String(opt.countyRegion || '').toUpperCase() === region) || option
   switchToCountyOption(resolvedOption)
 }
@@ -2408,6 +2418,7 @@ function updateUserLocationOnMap(latitude, longitude, accuracyMeters) {
 function drawCountyOverlay(geojson) {
   initializeMap()
   latestCountyContextGeojson = geojson
+  neighborCountyRegionsCache.clear()
   updateCountyPickerFromGeojson(geojson)
 
   const allFeatures = Array.isArray(geojson?.features) ? geojson.features : []
@@ -2910,16 +2921,40 @@ function renderStateCountySummaryTable(observations, countyName, stateRegion, ab
 function applySortAndRender() {
   if (!currentTableData.length) return
   const { col, dir } = sortState
+
+  const pinnedCandidate = String(activeSortCountyRegion || '').toUpperCase()
+  const pinnedRegion = (isCountyRegionCode(pinnedCandidate) && currentTableData.some((r) => String(r?.countyRegion || '').toUpperCase() === pinnedCandidate))
+    ? pinnedCandidate
+    : (currentTableData.some((r) => String(r?.countyRegion || '').toUpperCase() === YOLO_COUNTY_REGION) ? YOLO_COUNTY_REGION : '')
+
   const data = [...currentTableData].sort((a, b) => {
-    let av, bv
-    if (col === 'aba') {
-      av = Number.isFinite(a.abaCode) ? a.abaCode : -1
-      bv = Number.isFinite(b.abaCode) ? b.abaCode : -1
-    } else {
-      av = (col === 'last' ? a.last : a.first)?.getTime() ?? 0
-      bv = (col === 'last' ? b.last : b.first)?.getTime() ?? 0
+    const aRegion = String(a?.countyRegion || '').toUpperCase()
+    const bRegion = String(b?.countyRegion || '').toUpperCase()
+    if (pinnedRegion) {
+      const aPinned = aRegion === pinnedRegion
+      const bPinned = bRegion === pinnedRegion
+      if (aPinned !== bPinned) return aPinned ? -1 : 1
     }
-    return dir === 'desc' ? bv - av : av - bv
+
+    const aCode = Number.isFinite(a.abaCode) ? a.abaCode : -1
+    const bCode = Number.isFinite(b.abaCode) ? b.abaCode : -1
+    const aLast = a.last?.getTime() ?? 0
+    const bLast = b.last?.getTime() ?? 0
+
+    if (col === 'aba') {
+      if (aCode !== bCode) return dir === 'desc' ? (bCode - aCode) : (aCode - bCode)
+      if (aLast !== bLast) return bLast - aLast
+      return String(a.species || '').localeCompare(String(b.species || ''))
+    }
+
+    const aDate = (col === 'last' ? a.last : a.first)?.getTime() ?? 0
+    const bDate = (col === 'last' ? b.last : b.first)?.getTime() ?? 0
+    if (aDate !== bDate) return dir === 'desc' ? (bDate - aDate) : (aDate - bDate)
+
+    // Tiebreakers: ABA desc, then Last desc
+    if (aCode !== bCode) return bCode - aCode
+    if (aLast !== bLast) return bLast - aLast
+    return String(a.species || '').localeCompare(String(b.species || ''))
   })
   // Determine if this is Yolo (reuse regionCode stored on table)
   const regionCode = document.querySelector('#notableMeta')?.dataset?.regionCode || ''
@@ -2941,12 +2976,13 @@ function applySortAndRender() {
     const safeSpecies = escapeHtml(item.species)
     const safeCountyFull = escapeHtml(String(item.county || ''))
     const safeCountyShort = escapeHtml(shortCountyName(item.county))
+    const safeCountyRegion = escapeHtml(String(item.countyRegion || '').toUpperCase())
     row.dataset.species = item.species
     row.dataset.county = String(item.county || '')
     row.dataset.countyRegion = String(item.countyRegion || '').toUpperCase()
     row.innerHTML = `
       <td><div class="species-cell">${abaBadge}${yoloBadge}${statusBullets}<button type="button" class="species-btn" data-species="${safeSpecies}">${safeSpecies}</button></div></td>
-      <td class="col-county"><span class="county-cell" title="${safeCountyFull}">${safeCountyShort}</span></td>
+      <td class="col-county"><button type="button" class="county-link county-cell" data-county-region="${safeCountyRegion}" title="Pin ${safeCountyFull} to top">${safeCountyShort}</button></td>
       <td class="col-date col-last">${lastBubble}</td>
       <td class="col-date col-first">${firstBubble}</td>
       <td class="col-reports">${countPill}</td>
@@ -2980,6 +3016,179 @@ function applySortAndRender() {
     }
   })
   setTableRenderStatus(`sorted:${col}:${dir} rows=${data.length}`)
+
+  renderNeighborCountyTables(data, pinnedRegion || pinnedCandidate || '')
+}
+
+function setActiveSortCountyRegion(nextRegion) {
+  const normalized = String(nextRegion || '').toUpperCase()
+  if (!isCountyRegionCode(normalized)) return
+  activeSortCountyRegion = normalized
+  applySortAndRender()
+}
+
+function quantizeCoord(value, decimals = 5) {
+  const v = Number(value)
+  if (!Number.isFinite(v)) return null
+  return v.toFixed(decimals)
+}
+
+function addFeatureBoundaryPointsToSet(feature, outSet) {
+  const geometry = feature?.geometry
+  if (!geometry || !outSet) return
+  const pushRing = (ring) => {
+    if (!Array.isArray(ring)) return
+    ring.forEach((pt) => {
+      const lng = quantizeCoord(pt?.[0])
+      const lat = quantizeCoord(pt?.[1])
+      if (lng == null || lat == null) return
+      outSet.add(`${lng},${lat}`)
+    })
+  }
+  if (geometry.type === 'Polygon') {
+    ;(Array.isArray(geometry.coordinates) ? geometry.coordinates : []).forEach(pushRing)
+  } else if (geometry.type === 'MultiPolygon') {
+    ;(Array.isArray(geometry.coordinates) ? geometry.coordinates : []).forEach((poly) => {
+      ;(Array.isArray(poly) ? poly : []).forEach(pushRing)
+    })
+  }
+}
+
+function featureSharesBoundaryPoint(feature, pointSet) {
+  const geometry = feature?.geometry
+  if (!geometry || !pointSet) return false
+  const ringHasAny = (ring) => {
+    if (!Array.isArray(ring)) return false
+    for (const pt of ring) {
+      const lng = quantizeCoord(pt?.[0])
+      const lat = quantizeCoord(pt?.[1])
+      if (lng == null || lat == null) continue
+      if (pointSet.has(`${lng},${lat}`)) return true
+    }
+    return false
+  }
+  if (geometry.type === 'Polygon') {
+    return (Array.isArray(geometry.coordinates) ? geometry.coordinates : []).some(ringHasAny)
+  }
+  if (geometry.type === 'MultiPolygon') {
+    return (Array.isArray(geometry.coordinates) ? geometry.coordinates : []).some((poly) => (Array.isArray(poly) ? poly : []).some(ringHasAny))
+  }
+  return false
+}
+
+function getNeighborCountyRegions(activeCountyRegion) {
+  const activeRegion = String(activeCountyRegion || '').toUpperCase()
+  if (!isCountyRegionCode(activeRegion)) return []
+  if (neighborCountyRegionsCache.has(activeRegion)) return neighborCountyRegionsCache.get(activeRegion)
+
+  const features = Array.isArray(latestCountyContextGeojson?.features) ? latestCountyContextGeojson.features : []
+  const activeFeature = features.find((f) => String(f?.properties?.countyRegion || f?.properties?.subnational2Code || '').toUpperCase() === activeRegion) || null
+  if (!activeFeature) {
+    neighborCountyRegionsCache.set(activeRegion, [])
+    return []
+  }
+
+  const activePoints = new Set()
+  addFeatureBoundaryPointsToSet(activeFeature, activePoints)
+  const neighbors = []
+  for (const feature of features) {
+    const region = String(feature?.properties?.countyRegion || feature?.properties?.subnational2Code || '').toUpperCase()
+    if (!region || region === activeRegion) continue
+    if (!isCountyRegionCode(region)) continue
+    if (featureSharesBoundaryPoint(feature, activePoints)) neighbors.push(region)
+  }
+
+  neighbors.sort()
+  neighborCountyRegionsCache.set(activeRegion, neighbors)
+  return neighbors
+}
+
+function renderNeighborCountyTables(rows, activeCountyRegion) {
+  if (!neighborTables) return
+  const data = Array.isArray(rows) ? rows : []
+  const activeRegion = String(activeCountyRegion || '').toUpperCase()
+  if (!data.length || !isCountyRegionCode(activeRegion) || !latestCountyContextGeojson) {
+    neighborTables.setAttribute('hidden', 'hidden')
+    neighborTables.innerHTML = ''
+    return
+  }
+
+  const neighbors = getNeighborCountyRegions(activeRegion)
+  if (!neighbors.length) {
+    neighborTables.setAttribute('hidden', 'hidden')
+    neighborTables.innerHTML = ''
+    return
+  }
+
+  const grouped = new Map()
+  data.forEach((item) => {
+    const region = String(item?.countyRegion || '').toUpperCase()
+    if (!region) return
+    if (!grouped.has(region)) grouped.set(region, [])
+    grouped.get(region).push(item)
+  })
+
+  const neighborWithRows = neighbors
+    .map((region) => ({ region, rows: grouped.get(region) || [] }))
+    .filter((entry) => entry.rows.length > 0)
+
+  if (!neighborWithRows.length) {
+    neighborTables.setAttribute('hidden', 'hidden')
+    neighborTables.innerHTML = ''
+    return
+  }
+
+  const html = neighborWithRows.map((entry) => {
+    const region = entry.region
+    const name = countyPickerOptions.find((opt) => String(opt.countyRegion || '').toUpperCase() === region)?.countyName || region
+    const title = escapeHtml(String(name || region))
+    const safeRegion = escapeHtml(region)
+    const rowsSorted = [...entry.rows].sort((a, b) => {
+      const aCode = Number.isFinite(a.abaCode) ? a.abaCode : -1
+      const bCode = Number.isFinite(b.abaCode) ? b.abaCode : -1
+      if (aCode !== bCode) return bCode - aCode
+      return (b.last ? b.last.getTime() : 0) - (a.last ? a.last.getTime() : 0)
+    })
+
+    const body = rowsSorted.map((item) => {
+      const lastBubble = renderDateBubble(formatShortDate(item.last), getDateBubbleClass('last', item.first, item.last))
+      const firstBubble = renderDateBubble(formatShortDate(item.first), getDateBubbleClass('first', item.first, item.last))
+      const abaBadge = renderAbaCodeBadge(item.abaCode)
+      const safeSpecies = escapeHtml(item.species)
+      const isConfirmed = Boolean(item.confirmedAny)
+      const countPill = `<span class="count-pill ${isConfirmed ? 'count-pill-confirmed' : 'count-pill-pending'}" title="${isConfirmed ? 'Confirmed' : 'Pending'}">${item.count}</span>`
+      return `
+        <tr data-county-region="${escapeHtml(String(item.countyRegion || '').toUpperCase())}" data-county="${escapeHtml(String(item.county || ''))}">
+          <td><div class="species-cell">${abaBadge}<button type="button" class="species-btn" data-species="${safeSpecies}">${safeSpecies}</button></div></td>
+          <td class="col-date col-last">${lastBubble}</td>
+          <td class="col-date col-first">${firstBubble}</td>
+          <td class="col-reports">${countPill}</td>
+        </tr>
+      `.trim()
+    }).join('')
+
+    return `
+      <section class="neighbor-table-card" data-neighbor-region="${safeRegion}">
+        <div class="neighbor-table-title"><button type="button" class="county-link" data-county-region="${safeRegion}" title="Pin ${title} to top">${escapeHtml(shortCountyName(name))}</button></div>
+        <div class="table-wrap">
+          <table class="notable-table neighbor-table" aria-label="Neighbor county table">
+            <thead>
+              <tr>
+                <th>Species</th>
+                <th class="col-date">Last</th>
+                <th class="col-date">First</th>
+                <th class="col-reports">#</th>
+              </tr>
+            </thead>
+            <tbody>${body}</tbody>
+          </table>
+        </div>
+      </section>
+    `.trim()
+  }).join('')
+
+  neighborTables.innerHTML = html
+  neighborTables.removeAttribute('hidden')
 }
 
 // ---------------------------------------------------------------------------
@@ -4324,6 +4533,13 @@ document.addEventListener('click', (event) => {
 })
 
 notableRows.addEventListener('click', (event) => {
+  const countyLink = event.target.closest('.county-link')
+  if (countyLink) {
+    const region = String(countyLink.dataset.countyRegion || '').toUpperCase()
+    if (region) setActiveSortCountyRegion(region)
+    return
+  }
+
   const pinBtn = event.target.closest('.row-pin-btn')
   if (pinBtn) {
     const lat = pinBtn.dataset.lat
@@ -4404,6 +4620,13 @@ notableRows.addEventListener('click', (event) => {
       window.setTimeout(() => openObservationPopup(targetPt), 120)
     }
   }
+})
+
+neighborTables?.addEventListener('click', (event) => {
+  const countyLink = event.target.closest('.county-link')
+  if (!countyLink) return
+  const region = String(countyLink.dataset.countyRegion || '').toUpperCase()
+  if (region) setActiveSortCountyRegion(region)
 })
 
 document.querySelector('.notable-table thead').addEventListener('click', (event) => {

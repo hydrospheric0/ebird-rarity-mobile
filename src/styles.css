@@ -867,6 +867,30 @@ body {
   text-overflow: ellipsis;
   font-size: 0.7rem;
   color: var(--muted);
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.neighbor-tables {
+  margin-top: 0.35rem;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.neighbor-table-title {
+  padding: 0.1rem 0.05rem 0.25rem;
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.neighbor-table .species-btn {
+  font-size: 0.72rem;
 }
 
 .notable-table .col-reports {
