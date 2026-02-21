@@ -104,7 +104,6 @@ app.innerHTML = `
         <section class="card table-card">
           <div class="table-top-menu" aria-label="Sort and ABA counts">
             <button id="sortModeBtn" class="top-menu-select top-menu-btn sort-toggle-btn" type="button" aria-label="Toggle sort (ABA/distance)" aria-pressed="false" title="Sort: ABA (tap for distance)"><span class="sort-toggle-icon" aria-hidden="true">⌖</span><span class="sort-toggle-label">ABA</span></button>
-            <div id="topAbaPills" class="top-aba-pills" aria-label="ABA counts"></div>
           </div>
           <div id="countyPicker" class="county-picker" hidden>
             <div class="county-picker-title">Counties</div>
@@ -138,24 +137,6 @@ app.innerHTML = `
               <tbody id="notableRows"></tbody>
             </table>
           </div>
-          <div class="table-bottom-menu" aria-label="State, county, and days">
-            <button id="headerStateBtn" class="top-menu-select top-menu-btn" type="button" aria-label="State" title="Choose state">CA</button>
-            <select id="headerStateSelect" class="top-menu-select" aria-label="State" hidden aria-hidden="true" tabindex="-1">
-              <option value="US-CA">California</option>
-            </select>
-
-            <button id="headerCountyBtn" class="top-menu-select top-menu-btn" type="button" aria-label="County" title="Choose county">Loading…</button>
-            <select id="headerCountySelect" class="top-menu-select" aria-label="County" hidden aria-hidden="true" tabindex="-1">
-              <option value="">Loading…</option>
-            </select>
-
-            <select id="headerDaysBackSelect" class="top-menu-select" aria-label="Days back">
-              <option value="1">1 day</option>
-              <option value="3">3 days</option>
-              <option value="7" selected>7 days</option>
-              <option value="14">14 days</option>
-            </select>
-          </div>
           <p id="tableRenderStatus" class="detail" style="display:none">render: init</p>
         </section>
       </section>
@@ -168,26 +149,29 @@ app.innerHTML = `
       </section>
     </main>
 
-    <nav class="bottom-menu" aria-label="Bottom menu">
-      <button id="menuInfo" class="menu-btn" type="button" aria-label="Information">i</button>
-      <button id="menuSearch" class="menu-btn icon-btn" type="button" aria-label="Search">
-        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-          <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2"></circle>
-          <line x1="16" y1="16" x2="21" y2="21" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line>
-        </svg>
-      </button>
-      <button id="menuPin" class="menu-btn icon-btn" type="button" aria-label="Pin (coming soon)">
-        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-          <path d="M12 21s6-6.2 6-10a6 6 0 1 0-12 0c0 3.8 6 10 6 10z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path>
-          <circle cx="12" cy="11" r="2" fill="currentColor"></circle>
-        </svg>
-      </button>
-      <button id="menuRefresh" class="menu-btn icon-btn" type="button" aria-label="Hard refresh">
-        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-          <path d="M20 12a8 8 0 1 1-2.34-5.66" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
-          <polyline points="20 4 20 10 14 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline>
-        </svg>
-      </button>
+    <div class="bottom-aba-bar" aria-label="ABA summary">
+      <div id="topAbaPills" class="top-aba-pills" aria-label="ABA counts"></div>
+    </div>
+
+    <nav class="bottom-menu bottom-select-menu" aria-label="Selection bar">
+      <button id="headerStateBtn" class="top-menu-select top-menu-btn bottom-select" type="button" aria-label="State" title="Choose state">CA</button>
+      <select id="headerStateSelect" class="top-menu-select" aria-label="State" hidden aria-hidden="true" tabindex="-1">
+        <option value="US-CA">California</option>
+      </select>
+
+      <button id="headerCountyBtn" class="top-menu-select top-menu-btn bottom-select" type="button" aria-label="County" title="Choose county">Loading…</button>
+      <select id="headerCountySelect" class="top-menu-select" aria-label="County" hidden aria-hidden="true" tabindex="-1">
+        <option value="">Loading…</option>
+      </select>
+
+      <select id="headerDaysBackSelect" class="top-menu-select bottom-select" aria-label="Days back">
+        <option value="1">1 day</option>
+        <option value="3">3 days</option>
+        <option value="7" selected>7 days</option>
+        <option value="14">14 days</option>
+      </select>
+
+      <button id="bottomReloadBtn" class="menu-btn bottom-reload-btn" type="button" aria-label="Reload" title="Reload">Reload</button>
     </nav>
 
     <div id="infoModal" class="app-modal" hidden>
@@ -262,6 +246,7 @@ const menuInfoBtn = document.querySelector('#menuInfo')
 const menuSearchBtn = document.querySelector('#menuSearch')
 const menuPinBtn = document.querySelector('#menuPin')
 const menuRefreshBtn = document.querySelector('#menuRefresh')
+const bottomReloadBtn = document.querySelector('#bottomReloadBtn')
 const infoModal = document.querySelector('#infoModal')
 const infoCloseBtn = document.querySelector('#infoCloseBtn')
 const infoTechMetrics = document.querySelector('#infoTechMetrics')
@@ -1720,7 +1705,13 @@ function setSearchCountyIdleMessage(message = 'Select state first') {
 function applyCountyPickerOptionsFromStateEntries(entries, activeCountyRegion = '', anchor = null) {
   const list = Array.isArray(entries) ? entries : []
   const activeRegion = String(activeCountyRegion || '').toUpperCase()
-  if (!list.length) return
+  if (!list.length) {
+    countyPickerOptions = []
+    renderCountyPickerOptions()
+    refreshHeaderCountyOptions()
+    if (countyDotLayerRef) countyDotLayerRef.clearLayers()
+    return
+  }
 
   const anchorLat = Number(anchor?.lat)
   const anchorLng = Number(anchor?.lng)
@@ -4634,7 +4625,7 @@ async function requestUserLocation(manualRetry = false) {
 }
 
 retryLocationBtn.addEventListener('click', () => { void requestUserLocation(true) })
-menuInfoBtn.addEventListener('click', () => {
+menuInfoBtn?.addEventListener('click', () => {
   if (!infoModal) return
   renderInfoTechMetrics()
   renderTapDebugLog()
@@ -4691,7 +4682,7 @@ filterAbaMinInput?.addEventListener('input', (event) => {
   applyActiveFiltersAndRender()
 })
 updateFilterUi()
-menuSearchBtn.addEventListener('click', () => {
+menuSearchBtn?.addEventListener('click', () => {
   if (!searchPopover) return
   refreshSearchRegionOptions()
   void ensureSearchCountyOptionsForState(searchRegionSelect?.value || stateRegionFromCountyRegion(currentCountyRegion || '') || '')
@@ -4783,10 +4774,14 @@ function focusMapOnUserLocation() {
   }
 }
 
-menuPinBtn.addEventListener('click', () => {
+menuPinBtn?.addEventListener('click', () => {
   focusMapOnUserLocation()
 })
-menuRefreshBtn.addEventListener('click', () => {
+menuRefreshBtn?.addEventListener('click', () => {
+  void triggerHardRefresh()
+})
+
+bottomReloadBtn?.addEventListener('click', () => {
   void triggerHardRefresh()
 })
 mapFullscreenToggleBtn.addEventListener('click', () => {
@@ -5187,6 +5182,74 @@ apiKeyInput?.addEventListener('keydown', (e) => {
 
 // Gate startup on API key.
 ensureApiKeyOrGate()
+
+function sleep(ms) {
+  return new Promise((resolve) => { window.setTimeout(resolve, ms) })
+}
+
+function maybeStartStressTestRunner() {
+  const url = new URL(window.location.href)
+  if (url.searchParams.get('stress') !== '1') return
+
+  const key = getStoredEbirdApiKey()
+  if (!key) {
+    console.warn('[stress] Missing API key; enter it first, then reload with ?stress=1')
+    return
+  }
+
+  const states = ['US-CA', 'US-AZ', 'US-OR', 'US-WA', 'US-NV', 'US-ID', 'US-UT', 'US-CO']
+  const daysBackOptions = [1, 3, 7, 14]
+  const intervalMs = Math.max(800, Number(url.searchParams.get('stress_ms')) || 3500)
+  let step = 0
+  let inFlight = false
+  let stopped = false
+
+  const tick = async () => {
+    if (stopped || inFlight) return
+    inFlight = true
+    try {
+      await bootAppOnce()
+
+      const state = states[step % states.length]
+      const daysBack = daysBackOptions[step % daysBackOptions.length]
+
+      await activateStateByRegion(state)
+      await sleep(300)
+
+      if (headerDaysBackSelect) {
+        const desired = String(daysBack)
+        const hasOption = Array.from(headerDaysBackSelect.options).some((opt) => opt.value === desired)
+        if (hasOption) {
+          headerDaysBackSelect.value = desired
+          headerDaysBackSelect.dispatchEvent(new Event('change', { bubbles: true }))
+        }
+      }
+
+      if (Array.isArray(countyPickerOptions) && countyPickerOptions.length > 0) {
+        const cap = Math.min(countyPickerOptions.length, 8)
+        const pick = countyPickerOptions[step % cap]
+        if (pick?.countyRegion) {
+          activateCountyByRegion(pick.countyRegion, pick.lat, pick.lng, pick.countyName)
+        }
+      }
+
+      step += 1
+      console.log(`[stress] step=${step} state=${state} days=${daysBack} counties=${countyPickerOptions.length}`)
+    } catch (error) {
+      stopped = true
+      console.error('[stress] stopped due to error:', error)
+      handleUnhandledUiFault('stress-runner', error)
+    } finally {
+      inFlight = false
+    }
+  }
+
+  console.log(`[stress] Starting: interval=${intervalMs}ms (stop by removing ?stress=1)`)
+  window.setInterval(() => { void tick() }, intervalMs)
+  void tick()
+}
+
+maybeStartStressTestRunner()
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {

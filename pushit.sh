@@ -215,9 +215,24 @@ fi
 # Wire remote on the temp clone to point at GitHub (not local)
 git -C "$TMP_DIR" remote set-url origin "$REPO_URL"
 
-# Wipe old content, copy fresh build
-find "$TMP_DIR" -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
-cp -r "$DIST_DIR"/. "$TMP_DIR/"
+# Keep old hashed assets to avoid cache-related 404s, but refresh top-level files.
+# (GitHub Pages can cache index.html; keeping prior assets prevents broken loads.)
+mkdir -p "$TMP_DIR/assets"
+find "$TMP_DIR" -mindepth 1 -maxdepth 1 ! -name '.git' ! -name 'assets' -exec rm -rf {} +
+
+# Copy top-level dist files (excluding assets/) fresh.
+for entry in "$DIST_DIR"/*; do
+  base="$(basename "$entry")"
+  if [[ "$base" == "assets" ]]; then
+    continue
+  fi
+  cp -r "$entry" "$TMP_DIR/"
+done
+
+# Merge new assets on top of existing ones (do not delete old).
+if [[ -d "$DIST_DIR/assets" ]]; then
+  cp -r "$DIST_DIR/assets"/. "$TMP_DIR/assets/"
+fi
 
 # Commit + force-push
 pushd "$TMP_DIR" >/dev/null
