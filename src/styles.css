@@ -159,6 +159,10 @@ body {
   z-index: 9999;
 }
 
+.api-key-gate[hidden] {
+  display: none !important;
+}
+
 .api-key-card {
   width: min(32rem, 92vw);
   position: relative;
