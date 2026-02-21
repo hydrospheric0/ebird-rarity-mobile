@@ -16,6 +16,7 @@ app.innerHTML = `
   <div id="appShell" class="app-shell">
     <div id="apiKeyGate" class="api-key-gate" hidden>
       <div class="api-key-card" role="dialog" aria-modal="true" aria-labelledby="apiKeyTitle">
+        <button id="apiKeyCloseBtn" class="api-key-close-btn" type="button" aria-label="Close" title="Close">×</button>
         <h2 id="apiKeyTitle">eBird API key required</h2>
         <label class="api-key-field" for="apiKeyInput">
           <span>API key:</span>
@@ -286,6 +287,7 @@ const apiKeyInput = document.querySelector('#apiKeyInput')
 const apiKeyToggleBtn = document.querySelector('#apiKeyToggleBtn')
 const apiKeySaveBtn = document.querySelector('#apiKeySaveBtn')
 const apiKeyOpenBtn = document.querySelector('#apiKeyOpenBtn')
+const apiKeyCloseBtn = document.querySelector('#apiKeyCloseBtn')
 const apiKeyError = document.querySelector('#apiKeyError')
 const notableCount = document.querySelector('#notableCount')
 const notableMeta = document.querySelector('#notableMeta')
@@ -2260,6 +2262,39 @@ function hideApiKeyGate() {
   if (!apiKeyGate) return
   apiKeyGate.setAttribute('hidden', 'hidden')
   if (apiKeyError) apiKeyError.textContent = ''
+}
+
+async function testEbirdApiKey(candidateKey) {
+  const key = normalizeEbirdApiKey(candidateKey)
+  if (!key) return { ok: false, message: 'Paste your eBird API key to continue.' }
+  const endpoint = `${API_BASE_URL}/api/aba_meta`
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), 9000)
+  try {
+    const res = await fetch(endpoint, {
+      cache: 'no-store',
+      signal: controller.signal,
+      headers: { 'X-eBirdApiToken': key },
+    })
+    if (res.status === 401) {
+      return { ok: false, message: 'Invalid API key (401). Re-check and try again.' }
+    }
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '')
+      return { ok: false, message: `Key test failed (${res.status}). ${txt ? txt.slice(0, 80) : ''}`.trim() }
+    }
+    const data = await res.json().catch(() => null)
+    const maxCode = Number(data?.maxCode)
+    if (!Number.isFinite(maxCode) || maxCode < 1) {
+      return { ok: false, message: 'Key test returned unexpected response. Try again.' }
+    }
+    return { ok: true, message: '' }
+  } catch (e) {
+    const isTimeout = e?.name === 'AbortError'
+    return { ok: false, message: isTimeout ? 'Key test timed out. Try again.' : `Key test error: ${String(e?.message || e)}` }
+  } finally {
+    window.clearTimeout(timer)
+  }
 }
 
 const EYE_ICON_SVG = `
@@ -5108,20 +5143,35 @@ apiKeyToggleBtn?.addEventListener('click', () => {
   try { apiKeyInput?.focus() } catch { /* ignore */ }
 })
 
-apiKeySaveBtn?.addEventListener('click', () => {
-  const key = normalizeEbirdApiKey(apiKeyInput?.value)
-  if (!key) {
+apiKeyCloseBtn?.addEventListener('click', () => {
+  hideApiKeyGate()
+})
+
+apiKeySaveBtn?.addEventListener('click', async () => {
+  if (apiKeyError) apiKeyError.textContent = ''
+  const candidateKey = normalizeEbirdApiKey(apiKeyInput?.value)
+  if (!candidateKey) {
     if (apiKeyError) apiKeyError.textContent = 'Paste your eBird API key to continue.'
     return
   }
-  const ok = setStoredEbirdApiKey(key)
-  if (!ok) {
-    if (apiKeyError) apiKeyError.textContent = 'Could not save API key (storage blocked?).'
-    return
+
+  if (apiKeySaveBtn) apiKeySaveBtn.disabled = true
+  try {
+    const test = await testEbirdApiKey(candidateKey)
+    if (!test.ok) {
+      if (apiKeyError) apiKeyError.textContent = test.message || 'API key test failed.'
+      return
+    }
+    const ok = setStoredEbirdApiKey(candidateKey)
+    if (!ok) {
+      if (apiKeyError) apiKeyError.textContent = 'Could not save API key (storage blocked?).'
+      return
+    }
+    hideApiKeyGate()
+    void bootAppOnce()
+  } finally {
+    if (apiKeySaveBtn) apiKeySaveBtn.disabled = false
   }
-  if (apiKeyError) apiKeyError.textContent = ''
-  hideApiKeyGate()
-  void bootAppOnce()
 })
 
 apiKeyInput?.addEventListener('keydown', (e) => {
