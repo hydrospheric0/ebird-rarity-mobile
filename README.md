@@ -19,6 +19,19 @@ The app is hosted at: https://hydrospheric0.github.io/ebird-rarity-mobile/
 4. Tap neighboring counties on the map (or use the county picker) to switch county context.
 5. Tap map points for species/checklist details.
 
+## Development
+
+### Run locally
+- `npm install`
+- `VITE_API_BASE_URL="https://ebird-rarity-mapper.bartwickel.workers.dev" npm run dev`
+
+Dev uses a `/worker` proxy to avoid CORS issues.
+
+### Production build
+- `VITE_API_BASE_URL="https://ebird-rarity-mapper.bartwickel.workers.dev" npm run build`
+
+Production builds require `VITE_API_BASE_URL` (the build will fail without it) to prevent accidentally deploying against the wrong worker.
+
 ## Support this project
 If you find this tool useful, please consider supporting its development:
 

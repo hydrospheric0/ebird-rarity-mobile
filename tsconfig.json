@@ -10,6 +10,9 @@
     "module": "nodenext",
     "target": "esnext",
     "types": [],
+    "allowJs": true,
+    "checkJs": false,
+    "noEmit": true,
     // For nodejs:
     // "lib": ["esnext"],
     // "types": ["node"],
@@ -17,8 +20,6 @@
 
     // Other Outputs
     "sourceMap": true,
-    "declaration": true,
-    "declarationMap": true,
 
     // Stricter Typechecking Options
     "noUncheckedIndexedAccess": true,
@@ -40,5 +41,14 @@
     "noUncheckedSideEffectImports": true,
     "moduleDetection": "force",
     "skipLibCheck": true,
-  }
+  },
+  "include": [
+    "src/**/*.js",
+    "vite.config.js",
+    "sw.js"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules"
+  ]
 }

@@ -49,6 +49,7 @@ app.innerHTML = `
 
     <section class="map-strip">
       <div id="map" class="map"></div>
+      <div id="mapCountyLabel" class="map-county-label" hidden></div>
       <div class="map-top-right">
         <button id="mapFullscreenToggle" class="map-ctrl-btn" type="button" aria-pressed="false" aria-label="Toggle fullscreen map" title="Fullscreen">
           <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
@@ -150,7 +151,7 @@ app.innerHTML = `
       <section class="app-modal-panel" role="dialog" aria-modal="true" aria-labelledby="infoTitle">
         <h2 id="infoTitle">About this page</h2>
         <p>This mobile view shows nearby eBird county rarities with map + table syncing.</p>
-        <p>Use the top menu to switch county and days back, and use search to filter region/species quickly.</p>
+        <p>Use the top menu to switch county and days back, and use search to switch region/county quickly.</p>
         <p>© Bart Wickel, 2026</p>
         <section class="info-tech" aria-label="Technical metrics">
           <h3>Technical metrics</h3>
@@ -241,7 +242,6 @@ const mapCountyLabel = document.querySelector('#mapCountyLabel')
 const appShell = document.querySelector('#appShell')
 const notableCount = document.querySelector('#notableCount')
 const notableMeta = document.querySelector('#notableMeta')
-const statTotal = document.querySelector('#statTotal')
 const topAbaPills = document.querySelector('#topAbaPills')
 const countyPicker = document.querySelector('#countyPicker')
 const countyPickerList = document.querySelector('#countyPickerList')
@@ -1908,8 +1908,10 @@ function updateCountyLineColors() {
   const hideNeighborVisuals = isCounty && z > 9
   if (neighborLayerRef) {
     neighborLayerRef.setStyle({
-      color: hideNeighborVisuals ? 'transparent' : neighborStroke,
-      weight: hideNeighborVisuals ? 0 : 0.75,
+      // When zoomed in tightly on the active county, suppress neighbor fills for clarity,
+      // but keep boundary strokes so county lines remain visible under the mask.
+      color: neighborStroke,
+      weight: 0.75,
       fillColor: neighborFill,
       fillOpacity: hideNeighborVisuals ? 0 : (isCounty ? 0.46 : 0),
     })
@@ -2421,7 +2423,7 @@ function drawCountyOverlay(geojson) {
     const nowSat = currentBasemap === 'satellite'
     const isCounty = isCountyRegionCode(currentCountyRegion)
     const baseStyle = hideNeighborVisuals
-      ? { fillOpacity: 0, fillColor: '#94a3b8', color: 'transparent', weight: 0 }
+      ? { fillOpacity: 0, fillColor: '#94a3b8', color: nowSat ? '#94a3b8' : '#64748b', weight: 0.75 }
       : { fillOpacity: isCounty ? 0.46 : 0, fillColor: '#94a3b8', color: nowSat ? '#94a3b8' : '#64748b', weight: 0.75 }
     layer.setStyle({ fillOpacity: 0.72, fillColor: '#fde047', color: '#f59e0b', weight: 1.25 })
     if (layer._flashTimer) window.clearTimeout(layer._flashTimer)
@@ -2439,7 +2441,7 @@ function drawCountyOverlay(geojson) {
     neighborLayerRef = L.geoJSON(null, {
       pane: 'countyNeighborPane',
       style: hideNeighborVisuals
-        ? { color: 'transparent', weight: 0, fillColor: '#94a3b8', fillOpacity: 0 }
+        ? { color: neighborStroke, weight: 0.75, fillColor: '#94a3b8', fillOpacity: 0 }
         : { color: neighborStroke, weight: 0.75, fillColor: '#94a3b8', fillOpacity: 0.46 },
       onEachFeature: (feature, layer) => {
         const region = String(feature?.properties?.countyRegion || feature?.properties?.subnational2Code || '').toUpperCase() || null
