@@ -183,10 +183,6 @@ app.innerHTML = `
           <span>County:</span>
           <select id="searchCountySelect" class="top-menu-select" aria-label="Search county"></select>
         </label>
-        <label class="menu-popover-field" for="searchSpeciesSelect">
-          <span>Species:</span>
-          <select id="searchSpeciesSelect" class="top-menu-select" aria-label="Search species"></select>
-        </label>
         <label class="menu-popover-field" for="searchAbaMinInput">
           <span>ABA Code ≥ <span id="searchAbaMinValue">1</span></span>
           <input id="searchAbaMinInput" class="filter-slider" type="range" min="1" max="6" value="1" step="1" aria-label="Search ABA minimum">
@@ -264,7 +260,7 @@ const API_TIMEOUT_MS = 8000
 const COUNTY_NOTABLES_TIMEOUT_MS = 5500
 const MAP_LABEL_MAX_POINTS = 80
 const USER_LOCATION_ZOOM = 11
-const MAP_POINTS_FIT_MAX_ZOOM = 10
+const MAP_POINTS_FIT_MAX_ZOOM = 11
 const MAP_RENDER_BATCH_SIZE = 260
 const BASE_TILE_OPTIONS = {
   updateWhenIdle: false,
@@ -790,6 +786,8 @@ function buildCountyGeojsonWithActiveRegion(sourceGeojson, countyRegion) {
   if (!found) return null
   return {
     ...sourceGeojson,
+    inverseMaskFeatures: undefined,
+    activeLabel: undefined,
     activeCountyRegion: targetRegion,
     features,
   }
@@ -868,7 +866,7 @@ function zoomToActiveCounty(geojson, countyRegion = null) {
   try {
     const bounds = L.geoJSON({ type: 'FeatureCollection', features: activeFeatures }).getBounds()
     if (bounds.isValid()) {
-      map.fitBounds(bounds, { padding: [22, 22], maxZoom: 10, animate: true })
+      map.fitBounds(bounds, { padding: [22, 22], maxZoom: 11, animate: true })
       return true
     }
   } catch {
@@ -1227,8 +1225,23 @@ function refreshHeaderCountyOptions() {
     const optionEl = document.createElement('option')
     optionEl.value = String(opt.countyRegion || '')
     const name = String(opt.countyName || 'Unknown county')
-    const code = String(opt.countyRegion || '').toUpperCase()
-    optionEl.textContent = code ? `${name} (${code})` : name
+    const region = String(opt.countyRegion || '').toUpperCase()
+    const isActive = region === activeRegion || Boolean(opt.isActive)
+    if (isActive) {
+      // Keep the header "pill" clean: no ABA counts on the selected value.
+      optionEl.textContent = name
+    } else {
+      const summary = getCountySummary(region, false)
+      const parts = []
+      if (summary && summary.abaCounts instanceof Map) {
+        for (let code = 6; code >= 1; code -= 1) {
+          const count = summary.abaCounts.get(code) || 0
+          if (count > 0) parts.push(`${code}:${count}`)
+        }
+      }
+      const meta = summary ? ` · ${summary.rarityCount}${parts.length ? ` · ${parts.join(' ')}` : ''}` : ''
+      optionEl.textContent = `${name}${meta}`
+    }
     optionEl.dataset.index = String(index)
     headerCountySelect.appendChild(optionEl)
   })
@@ -1601,6 +1614,21 @@ function activateCountyFromSearchSelection(countyRegion) {
     return
   }
 
+  const stateRegion = stateRegionFromCountyRegion(targetRegion)
+  const cachedEntries = stateRegion ? stateCountyOptionsCache.get(stateRegion) : null
+  if (Array.isArray(cachedEntries) && cachedEntries.length) {
+    const cached = cachedEntries.find((entry) => String(entry?.countyRegion || '').toUpperCase() === targetRegion) || null
+    if (cached) {
+      activateCountyByRegion(
+        targetRegion,
+        Number.isFinite(cached.lat) ? cached.lat : null,
+        Number.isFinite(cached.lng) ? cached.lng : null,
+        cached.countyName || ''
+      )
+      return
+    }
+  }
+
   const sample = (Array.isArray(currentRawObservations) ? currentRawObservations : []).find(
     (item) => String(item?.subnational2Code || '').toUpperCase() === targetRegion
       && Number.isFinite(Number(item?.lat))
@@ -1819,17 +1847,27 @@ function initializeMap() {
     if (z > 9 && isCountyRegionCode(currentCountyRegion)) {
       applyHiResCountyOutline(currentCountyRegion)
     } else if (latestCountyContextGeojson) {
-      // Restore lo-res GeoJSON outline
-      const activeFeatures = latestCountyContextGeojson.features.filter(
-        (f) => f?.properties?.isActiveCounty
-      )
-      if (countyOverlay && activeFeatures.length) {
+      const overlayRegion = String(latestCountyContextGeojson?.activeCountyRegion || '').toUpperCase()
+      const isStateOverlayMode = /^US-[A-Z]{2}$/.test(overlayRegion)
+      const activeFeatures = Array.isArray(latestCountyContextGeojson?.features)
+        ? latestCountyContextGeojson.features.filter((f) => f?.properties?.isActiveCounty)
+        : []
+
+      if (countyOverlay) {
         countyOverlay.clearLayers()
-        countyOverlay.addData({ type: 'FeatureCollection', features: activeFeatures })
+        if (isStateOverlayMode && Array.isArray(latestCountyContextGeojson?.inverseMaskFeatures)) {
+          countyOverlay.addData({ type: 'FeatureCollection', features: latestCountyContextGeojson.inverseMaskFeatures })
+        } else {
+          const maskFeatures = buildInverseMaskFeaturesFromActiveFeatures(activeFeatures)
+          countyOverlay.addData({ type: 'FeatureCollection', features: maskFeatures.length ? maskFeatures : activeFeatures })
+        }
       }
-      if (activeOutlineLayerRef && activeFeatures.length) {
+
+      if (activeOutlineLayerRef) {
         activeOutlineLayerRef.clearLayers()
-        activeOutlineLayerRef.addData({ type: 'FeatureCollection', features: activeFeatures })
+        if (!isStateOverlayMode && activeFeatures.length) {
+          activeOutlineLayerRef.addData({ type: 'FeatureCollection', features: activeFeatures })
+        }
         updateCountyLineColors()
       }
     }
@@ -1858,11 +1896,18 @@ function updateCountyLineColors() {
   const activeStroke  = isSat ? '#ffffff' : '#dc2626'
   const activeMaskFill = isSat ? '#94a3b8' : '#cbd5e1'
   const isCounty = isCountyRegionCode(currentCountyRegion)
+  const z = map ? map.getZoom() : 0
+  const hideNeighborVisuals = isCounty && z > 9
   if (neighborLayerRef) {
-    neighborLayerRef.setStyle({ color: neighborStroke, weight: 0.75, fillColor: neighborFill, fillOpacity: isCounty ? 0.46 : 0 })
+    neighborLayerRef.setStyle({
+      color: hideNeighborVisuals ? 'transparent' : neighborStroke,
+      weight: hideNeighborVisuals ? 0 : 0.75,
+      fillColor: neighborFill,
+      fillOpacity: hideNeighborVisuals ? 0 : (isCounty ? 0.46 : 0),
+    })
   }
   if (countyOverlay) {
-    countyOverlay.setStyle({ color: 'transparent', weight: 0, fillColor: activeMaskFill, fillOpacity: 0.28 })
+    countyOverlay.setStyle({ color: 'transparent', weight: 0, fillColor: activeMaskFill, fillOpacity: 0.28, fillRule: 'evenodd' })
   }
   if (activeOutlineLayerRef) {
     activeOutlineLayerRef.setStyle({ color: activeStroke, weight: 1, fillOpacity: 0 })
@@ -2018,7 +2063,8 @@ async function applyHiResCountyOutline(countyRegion) {
     if (currentCountyRegion !== countyRegion) return
     if (countyOverlay) {
       countyOverlay.clearLayers()
-      countyOverlay.addData({ type: 'FeatureCollection', features: hiGeo.features })
+      const maskFeatures = buildInverseMaskFeaturesFromActiveFeatures(hiGeo.features)
+      countyOverlay.addData({ type: 'FeatureCollection', features: maskFeatures.length ? maskFeatures : hiGeo.features })
     }
     activeOutlineLayerRef.clearLayers()
     activeOutlineLayerRef.addData({ type: 'FeatureCollection', features: hiGeo.features })
@@ -2350,19 +2396,25 @@ function drawCountyOverlay(geojson) {
   const activeFeatures = isStateOverlayMode
     ? []
     : allFeatures.filter((f) => f?.properties?.isActiveCounty)
-  const overlayFeatures = Array.isArray(geojson?.inverseMaskFeatures)
+  const overlayFeatures = (isStateOverlayMode && Array.isArray(geojson?.inverseMaskFeatures))
     ? geojson.inverseMaskFeatures
-    : activeFeatures
+    : (() => {
+      const maskFeatures = buildInverseMaskFeaturesFromActiveFeatures(activeFeatures)
+      return maskFeatures.length ? maskFeatures : activeFeatures
+    })()
 
   const isSat = currentBasemap === 'satellite'
   const neighborStroke = isSat ? '#94a3b8' : '#64748b'
   const activeStroke = isSat ? '#ffffff' : '#dc2626'
+  const hideNeighborVisuals = isCountyRegionCode(currentCountyRegion) && map && map.getZoom() > 9
 
   const flashNeighborLayer = (layer) => {
     if (!layer || typeof layer.setStyle !== 'function') return
     const nowSat = currentBasemap === 'satellite'
     const isCounty = isCountyRegionCode(currentCountyRegion)
-    const baseStyle = { fillOpacity: isCounty ? 0.46 : 0, fillColor: '#94a3b8', color: nowSat ? '#94a3b8' : '#64748b', weight: 0.75 }
+    const baseStyle = hideNeighborVisuals
+      ? { fillOpacity: 0, fillColor: '#94a3b8', color: 'transparent', weight: 0 }
+      : { fillOpacity: isCounty ? 0.46 : 0, fillColor: '#94a3b8', color: nowSat ? '#94a3b8' : '#64748b', weight: 0.75 }
     layer.setStyle({ fillOpacity: 0.72, fillColor: '#fde047', color: '#f59e0b', weight: 1.25 })
     if (layer._flashTimer) window.clearTimeout(layer._flashTimer)
     layer._flashTimer = window.setTimeout(() => {
@@ -2378,7 +2430,9 @@ function drawCountyOverlay(geojson) {
   if (!neighborLayerRef) {
     neighborLayerRef = L.geoJSON(null, {
       pane: 'countyNeighborPane',
-      style: { color: neighborStroke, weight: 0.75, fillColor: '#94a3b8', fillOpacity: 0.46 },
+      style: hideNeighborVisuals
+        ? { color: 'transparent', weight: 0, fillColor: '#94a3b8', fillOpacity: 0 }
+        : { color: neighborStroke, weight: 0.75, fillColor: '#94a3b8', fillOpacity: 0.46 },
       onEachFeature: (feature, layer) => {
         const region = String(feature?.properties?.countyRegion || feature?.properties?.subnational2Code || '').toUpperCase() || null
         const name = feature?.properties?.countyName || feature?.properties?.NAME || feature?.properties?.name || ''
@@ -2400,10 +2454,12 @@ function drawCountyOverlay(geojson) {
             )
           },
           mouseover: () => {
+            if (hideNeighborVisuals) return
             const isCounty = isCountyRegionCode(currentCountyRegion)
             layer.setStyle({ fillOpacity: isCounty ? 0.56 : 0.2, fillColor: '#94a3b8', color: '#475569', weight: 1 })
           },
           mouseout: () => {
+            if (hideNeighborVisuals) return
             const nowSat = currentBasemap === 'satellite'
             const isCounty = isCountyRegionCode(currentCountyRegion)
             layer.setStyle({ fillOpacity: isCounty ? 0.46 : 0, fillColor: '#94a3b8', color: nowSat ? '#94a3b8' : '#64748b', weight: 0.75 })
@@ -2423,7 +2479,7 @@ function drawCountyOverlay(geojson) {
   if (!countyOverlay) {
     countyOverlay = L.geoJSON(null, {
       pane: 'countyMaskPane',
-      style: { color: 'transparent', weight: 0, fillColor: '#94a3b8', fillOpacity: 0.28 },
+      style: { color: 'transparent', weight: 0, fillColor: '#94a3b8', fillOpacity: 0.28, fillRule: 'evenodd' },
       interactive: false,
     }).addTo(map)
   }
@@ -2918,6 +2974,16 @@ let fastCanvasOverlay = null   // L.Layer instance
 let fastCanvasData = []        // rendered points for current zoom (clustered or raw)
 let fastCanvasBaseData = []    // raw points before clustering
 let fastCanvasPopup = null     // single reused L.popup
+let fastCanvasPopupKey = null  // key for last opened popup (for toggle close)
+
+function getCanvasPopupKey(pt) {
+  if (!pt) return ''
+  const species = String(pt.species || '')
+  const lat = Number(pt.lat)
+  const lng = Number(pt.lng)
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return species
+  return `${species}|${lat.toFixed(5)}|${lng.toFixed(5)}`
+}
 
 function buildClusteredCanvasData(baseData, mapInstance) {
   if (!mapInstance) return Array.isArray(baseData) ? baseData : []
@@ -3028,7 +3094,7 @@ function buildFastCanvasOverlay() {
         ctx.strokeStyle = pt.border
         ctx.stroke()
         if (pt.isCluster) {
-          if (labelsVisible) {
+          if (labelMode !== 'off') {
             const txt = String(pt.clusterCount || '')
             ctx.font = '700 10px sans-serif'
             ctx.textAlign = 'center'
@@ -3120,6 +3186,7 @@ function openObservationPopup(pt) {
   const html = buildObservationPopupHtml(pt)
   if (!html) return
   if (!fastCanvasPopup) fastCanvasPopup = L.popup({ maxWidth: 180, className: 'obs-popup' })
+  fastCanvasPopupKey = getCanvasPopupKey(pt)
   fastCanvasPopup.setLatLng([pt.lat, pt.lng]).setContent(html).openOn(map)
 }
 
@@ -3159,6 +3226,13 @@ function ensureCanvasClickHandler() {
           return
         }
         e.stopPropagation()
+        const key = getCanvasPopupKey(pt)
+        if (key && fastCanvasPopup && fastCanvasPopupKey === key) {
+          fastCanvasPopup.remove()
+          fastCanvasPopup = null
+          fastCanvasPopupKey = null
+          return
+        }
         openObservationPopup(pt)
         return
       }
@@ -3170,11 +3244,13 @@ function ensureCanvasClickHandler() {
       const region = String(neighborFeature?.properties?.countyRegion || neighborFeature?.properties?.subnational2Code || '').toUpperCase() || null
       const name = neighborFeature?.properties?.countyName || neighborFeature?.properties?.NAME || neighborFeature?.properties?.name || ''
       if (fastCanvasPopup) { fastCanvasPopup.remove(); fastCanvasPopup = null }
+      fastCanvasPopupKey = null
       switchCountyFromMapTap(region, latlng.lat, latlng.lng, name, 'canvas-fallback')
       return
     }
 
     if (fastCanvasPopup) { fastCanvasPopup.remove(); fastCanvasPopup = null }
+    fastCanvasPopupKey = null
   })
 }
 // ---------------------------------------------------------------------------
@@ -3726,8 +3802,9 @@ async function loadNationalNotables(regionCode = US_REGION_CODE, abaMinFloor = 3
 
 async function loadNeighborCounty(lat, lng, countyRegion, countyName) {
   const normalizedCountyRegion = countyRegion ? String(countyRegion).toUpperCase() : null
-  let targetLat = Number(lat)
-  let targetLng = Number(lng)
+  // Avoid Number(null) => 0 (which would incorrectly send us to 0,0).
+  let targetLat = (lat === null || lat === undefined || lat === '') ? NaN : Number(lat)
+  let targetLng = (lng === null || lng === undefined || lng === '') ? NaN : Number(lng)
   const countySwitchRequestId = ++latestCountySwitchRequestId
   mapLoadState.activeCounty = false
   mapLoadState.stateMask = false
@@ -3811,7 +3888,7 @@ async function requestUserLocation(manualRetry = false) {
       'Location is not supported on this device/browser.',
       'location-unsupported'
     )
-    return
+    return false
   }
 
   const permissionState = await getGeolocationPermissionState()
@@ -3822,7 +3899,7 @@ async function requestUserLocation(manualRetry = false) {
       'Location permission is blocked. Allow location and tap Use My Location again.',
       'location-denied'
     )
-    return
+    return false
   }
 
   setLocationUiChecking()
@@ -3861,7 +3938,7 @@ async function requestUserLocation(manualRetry = false) {
     // Persist so next app open can skip the browser prompt
     try { localStorage.setItem('mrm_last_pos', JSON.stringify({ lat: latitude, lng: longitude, ts: Date.now() })) } catch (_) {}
     if (isStaleLocationRequest(requestId)) {
-      return
+      return false
     }
 
     locationStatus.className = 'badge ok'
@@ -3886,7 +3963,7 @@ async function requestUserLocation(manualRetry = false) {
     perfEnd('county')
 
     if (isStaleLocationRequest(requestId)) {
-      return
+      return false
     }
 
     if (countyContext?.countyLabel) {
@@ -3899,6 +3976,7 @@ async function requestUserLocation(manualRetry = false) {
     }
     await notablesPromise
     updateRuntimeLog()
+    return true
   } catch (error) {
     let reason = error && error.message ? error.message : 'Location permission was denied or timed out.'
 
@@ -3923,6 +4001,7 @@ async function requestUserLocation(manualRetry = false) {
     setMapLoading(false)
     console.error(error)
     updateRuntimeLog()
+    return false
   }
 }
 
@@ -3944,15 +4023,16 @@ headerDaysBackSelect?.addEventListener('change', (event) => {
 })
 headerCountySelect?.addEventListener('change', (event) => {
   const selectEl = event.target
-  const selectedOptionEl = selectEl?.options?.[selectEl.selectedIndex] || null
-  const selectedIndex = Number(selectedOptionEl?.dataset?.index)
-  let option = Number.isInteger(selectedIndex) ? countyPickerOptions[selectedIndex] : null
-  if (!option) {
-    const countyRegion = String(selectEl?.value || '').toUpperCase()
-    if (!countyRegion) return
-    option = countyPickerOptions.find((opt) => String(opt.countyRegion || '').toUpperCase() === countyRegion)
+  const countyRegion = String(selectEl?.value || '').toUpperCase()
+  if (!countyRegion) return
+  const option = countyPickerOptions.find((opt) => String(opt.countyRegion || '').toUpperCase() === countyRegion) || null
+  if (option) {
+    activateCountyFromOption(option)
+    return
   }
-  switchToCountyOption(option)
+
+  // Fallback: activate by region with unknown center (loadNeighborCounty will resolve from cached/geojson if possible)
+  activateCountyByRegion(countyRegion, null, null, '')
 })
 filterDaysBackInput?.addEventListener('input', (event) => {
   filterDaysBack = Number(event.target.value) || 7
@@ -3969,7 +4049,6 @@ menuSearchBtn.addEventListener('click', () => {
   if (!searchPopover) return
   refreshSearchRegionOptions()
   void ensureSearchCountyOptionsForState(searchRegionSelect?.value || stateRegionFromCountyRegion(currentCountyRegion || '') || '')
-  refreshSearchSpeciesOptions(currentRawObservations)
   updateFilterUi()
   syncSearchSlidersForRegion(searchRegionSelect?.value || stateRegionFromCountyRegion(currentCountyRegion || '') || '')
   searchPopover.toggleAttribute('hidden')
@@ -3998,12 +4077,13 @@ searchApplyBtn?.addEventListener('click', async () => {
   searchApplyInProgress = true
   const selectedRegion = String(searchRegionSelect?.value || '').toUpperCase()
   const selectedCountyRegion = String(searchCountySelect?.value || '').toUpperCase()
-  const selectedName = String(searchSpeciesSelect?.value || '').trim()
+  const selectedName = searchSpeciesSelect ? String(searchSpeciesSelect.value || '').trim() : ''
   const chosenDays = Number(searchDaysBackInput?.value || filterDaysBack) || filterDaysBack
   const requestedAbaMin = Number(searchAbaMinInput?.value || filterAbaMin) || filterAbaMin
   const effectiveAbaMin = getEffectiveSearchAbaMin(selectedRegion, requestedAbaMin)
   try {
-    selectedSpecies = selectedName || null
+    // Species search field is currently removed from the UI; don't clobber any active species filter.
+    if (searchSpeciesSelect) selectedSpecies = selectedName || null
     filterDaysBack = chosenDays
     filterAbaMin = effectiveAbaMin
     if (filterDaysBackInput) filterDaysBackInput.value = String(filterDaysBack)
@@ -4011,18 +4091,15 @@ searchApplyBtn?.addEventListener('click', async () => {
     updateFilterUi()
     syncSearchSlidersForRegion(selectedRegion)
     applyActiveFiltersAndRender({ fitToObservations: true })
-    if (selectedRegion) {
+    // Selection priority (wireframe contract): county > state/US.
+    if (/^US-[A-Z]{2}-\d{3}$/.test(selectedCountyRegion)) {
+      activateCountyFromSearchSelection(selectedCountyRegion)
+    } else if (selectedRegion) {
       if (selectedRegion === US_REGION_CODE) {
         await loadNationalNotables(selectedRegion, effectiveAbaMin)
       } else if (/^US-[A-Z]{2}$/.test(selectedRegion)) {
         await loadStateNotables(selectedRegion)
-      } else {
-        const option = countyPickerOptions.find((opt) => String(opt.countyRegion || '').toUpperCase() === selectedRegion)
-        if (option) activateCountyFromOption(option)
       }
-    }
-    if (/^US-[A-Z]{2}-\d{3}$/.test(selectedCountyRegion)) {
-      activateCountyFromSearchSelection(selectedCountyRegion)
     }
     searchPopover?.setAttribute('hidden', 'hidden')
   } catch (error) {
@@ -4054,7 +4131,7 @@ function focusMapOnUserLocation() {
   if (!map) return
   if (lastUserLat !== null && lastUserLng !== null) {
     map.invalidateSize()
-    map.setView([lastUserLat, lastUserLng], Math.max(map.getZoom(), 12), { animate: true })
+    map.setView([lastUserLat, lastUserLng], 14, { animate: true })
   } else {
     void requestUserLocation()
   }
@@ -4340,7 +4417,7 @@ document.querySelector('#toggleAllVis')?.addEventListener('change', (event) => {
 setMode('map')
 checkApi()
 
-// On startup, use cached location first (if available), otherwise request current location.
+// On startup, request current location (GPS). If unavailable, default to Yolo County, CA.
 ;(async () => {
   const launchUrl = new URL(window.location.href)
   const forceFreshLocation = launchUrl.searchParams.get('force_location') === '1'
@@ -4349,52 +4426,54 @@ checkApi()
     window.history.replaceState({}, '', launchUrl.toString())
   }
 
-  try {
-    const stored = forceFreshLocation ? null : localStorage.getItem('mrm_last_pos')
-    if (stored) {
-      const { lat, lng, ts } = JSON.parse(stored)
-      const ageMs = Date.now() - ts
-      // Keep cached location for up to 7 days
-      if (Number.isFinite(lat) && Number.isFinite(lng) && ageMs < 7 * 24 * 60 * 60 * 1000) {
-        lastUserLat = lat
-        lastUserLng = lng
-        const requestId = ++latestLocationRequestId
-        locationStatus.className = 'badge ok'
-        locationStatus.textContent = 'Located'
-        locationDetail.textContent = `Lat ${lat.toFixed(5)}, Lon ${lng.toFixed(5)} · cached`
-        resetMapLoadState()
-        updateUserLocationOnMap(lat, lng, null)
-        const cachedGeoJson = loadCountyContextCache(lat, lng)
-        const cachedActiveFeature = Array.isArray(cachedGeoJson?.features)
-          ? cachedGeoJson.features.find((f) => f?.properties?.isActiveCounty)
-          : null
-        const cachedCountyRegion = cachedActiveFeature?.properties?.countyRegion || cachedGeoJson?.activeCountyRegion || null
+  // Default fallback: Woodland, CA (inside Yolo County). Used when geolocation fails/is blocked.
+  const YOLO_DEFAULT_LAT = 38.6785
+  const YOLO_DEFAULT_LNG = -121.7733
 
-        const countyContextPromise = updateCountyForLocation(lat, lng, requestId)
-        const notablesPromise = loadCountyNotables(lat, lng, cachedCountyRegion, requestId, null, false)
-        const countyContext = await countyContextPromise
-        if (!isStaleLocationRequest(requestId)) {
-          locationStatus.className = 'badge ok'
-          locationStatus.textContent = 'Located'
-          locationDetail.textContent = `Lat ${lat.toFixed(5)}, Lon ${lng.toFixed(5)} · cached`
-          if (countyContext?.countyLabel) {
-            locationDetail.textContent += ` · ${countyContext.countyLabel}`
-            if (mapCountyLabel) { mapCountyLabel.textContent = countyContext.countyLabel; mapCountyLabel.removeAttribute('hidden') }
-          }
-          const regionForZoom = String(countyContext?.countyRegion || cachedCountyRegion || '').toUpperCase() || null
-          if (regionForZoom) {
-            zoomToActiveCounty(latestCountyContextGeojson, regionForZoom)
-          }
+  const startFromDefaultCounty = async (reasonLabel = 'default') => {
+    const lat = YOLO_DEFAULT_LAT
+    const lng = YOLO_DEFAULT_LNG
+    lastUserLat = lat
+    lastUserLng = lng
+    const requestId = ++latestLocationRequestId
+    locationStatus.className = 'badge warn'
+    locationStatus.textContent = 'Default'
+    locationDetail.textContent = `Yolo County, CA · ${reasonLabel}`
+    resetMapLoadState()
+    updateUserLocationOnMap(lat, lng, null)
+
+    try {
+      perfStart('county')
+      const countyContextPromise = updateCountyForLocation(lat, lng, requestId)
+      const notablesPromise = loadCountyNotables(lat, lng, null, requestId, null, false)
+      const countyContext = await countyContextPromise
+      perfEnd('county')
+      if (!isStaleLocationRequest(requestId)) {
+        if (countyContext?.countyLabel) {
+          locationDetail.textContent = `${countyContext.countyLabel} · ${reasonLabel}`
+          if (mapCountyLabel) { mapCountyLabel.textContent = countyContext.countyLabel; mapCountyLabel.removeAttribute('hidden') }
         }
-        await notablesPromise
-        // Fresh location can be requested explicitly via "Use My Location".
-        return
+        const regionForZoom = String(countyContext?.countyRegion || '').toUpperCase() || null
+        if (regionForZoom) zoomToActiveCounty(latestCountyContextGeojson, regionForZoom)
       }
+      await notablesPromise
+      updateRuntimeLog()
+      return true
+    } catch (error) {
+      console.error('default county startup failed:', error)
+      updateRuntimeLog()
+      return false
     }
-  } catch (_) {}
+  }
 
-  // No cache available: request current location.
-  void requestUserLocation(false)
+  // Default: request current location.
+  const located = await requestUserLocation(false)
+  if (located) return
+
+  // Fallback: if GPS is blocked/unavailable, load Yolo County, CA by default.
+  if (!forceFreshLocation) {
+    await startFromDefaultCounty('no location')
+  }
 })()
 
 if ('serviceWorker' in navigator) {
