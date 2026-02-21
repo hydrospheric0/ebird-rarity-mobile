@@ -83,13 +83,7 @@ app.innerHTML = `
               <option value="7" selected>7 days</option>
               <option value="14">14 days</option>
             </select>
-          </div>
-          <div class="obs-stats-bar">
-            <div class="stats-left">
-              <span id="statConfirmed" class="obs-stat obs-stat-confirmed" data-label="✓" tabindex="0" role="button" title="Confirmed">—</span>
-              <span id="statPending" class="obs-stat obs-stat-pending" data-label="?" tabindex="0" role="button" title="Pending">—</span>
-              <div id="statsRight" class="stats-right"></div>
-            </div>
+            <div id="topAbaPills" class="top-aba-pills" aria-label="ABA counts"></div>
           </div>
           <div id="countyPicker" class="county-picker" hidden>
             <div class="county-picker-title">Counties</div>
@@ -249,9 +243,7 @@ const appShell = document.querySelector('#appShell')
 const notableCount = document.querySelector('#notableCount')
 const notableMeta = document.querySelector('#notableMeta')
 const statTotal = document.querySelector('#statTotal')
-const statConfirmed = document.querySelector('#statConfirmed')
-const statPending = document.querySelector('#statPending')
-const statsRight = document.querySelector('#statsRight')
+const topAbaPills = document.querySelector('#topAbaPills')
 const countyPicker = document.querySelector('#countyPicker')
 const countyPickerList = document.querySelector('#countyPickerList')
 const abaCodePicker = document.querySelector('#abaCodePicker')
@@ -677,16 +669,9 @@ function setPillExpandedLabel(pill, prefix) {
 }
 
 function syncFilterPillUi() {
-  setPillExpandedLabel(statConfirmed, '✓')
-  setPillExpandedLabel(statPending, '?')
-  if (statConfirmed) statConfirmed.setAttribute('title', 'Confirmed')
-  if (statPending) statPending.setAttribute('title', 'Pending')
-  const abaPills = document.querySelectorAll('#statsRight .stat-aba-pill')
+  const abaPills = document.querySelectorAll('#topAbaPills .stat-aba-pill')
   abaPills.forEach((pill) => {
     const code = Number(pill.dataset.code)
-    if (!pill.dataset.short || pill.textContent.includes('ABA')) pill.dataset.short = pill.textContent.replace(/^.*?:\s*/, '').trim()
-    if (pill.dataset.short) pill.textContent = `ABA ${code}: ${pill.dataset.short}`
-    pill.classList.add('obs-stat-expanded')
     const isActive = Number.isFinite(Number(selectedAbaCode)) && Number(selectedAbaCode) === code
     pill.classList.toggle('is-active', isActive)
     pill.setAttribute('aria-pressed', String(isActive))
@@ -1722,44 +1707,28 @@ function setTableRenderStatus(message) {
 }
 
 function updateStatPills(total, confirmed, pending) {
-  if (statTotal) {
-    statTotal.textContent = `Total: ${total}`
-    statTotal.dataset.short = String(total)
-    statTotal.dataset.full = `Total species: ${total}`
-    statTotal.classList.add('obs-stat-expanded')
-  }
-  if (statConfirmed) {
-    statConfirmed.textContent = `✓: ${confirmed}`
-    statConfirmed.dataset.short = String(confirmed)
-    statConfirmed.dataset.full = `Confirmed: ${confirmed}`
-    statConfirmed.classList.add('obs-stat-expanded')
-  }
-  if (statPending) {
-    statPending.textContent = `?: ${pending}`
-    statPending.dataset.short = String(pending)
-    statPending.dataset.full = `Pending: ${pending}`
-    statPending.classList.add('obs-stat-expanded')
-  }
-  if (statsRight)    statsRight.innerHTML = ''
+  // Confirmed/pending pills removed; keep function as a harmless no-op.
+  if (topAbaPills) topAbaPills.innerHTML = ''
 }
 
 function renderAbaStatPills(sorted) {
-  if (!statsRight) return
+  if (!topAbaPills) return
   const counts = new Map()
   sorted.forEach((item) => {
     const code = Number.isFinite(item.abaCode) ? item.abaCode : null
     if (code !== null) counts.set(code, (counts.get(code) || 0) + 1)
   })
-  if (counts.size === 0) return
-  const orderedCodes = [1, 2, 3, 4, 5, 6]
+
+  const orderedCodes = [1, 2, 3, 4, 5]
   const html = orderedCodes
-    .filter((c) => counts.has(c))
     .map((c) => {
-      const isActive = selectedAbaCode === c
-      return `<span class="stat-aba-pill aba-code-${c}${isActive ? ' is-active' : ''}" data-code="${c}" tabindex="0" role="button" aria-pressed="${isActive ? 'true' : 'false'}" title="Filter ABA code ${c}: ${counts.get(c)} species">${counts.get(c)}</span>`
+      const count = counts.get(c) || 0
+      const isActive = Number.isFinite(Number(selectedAbaCode)) && Number(selectedAbaCode) === c
+      return `<button type="button" class="stat-aba-pill aba-code-${c}${isActive ? ' is-active' : ''}" data-code="${c}" aria-pressed="${isActive ? 'true' : 'false'}" title="Toggle ABA ${c} filter">${count}</button>`
     })
     .join('')
-  statsRight.innerHTML = html
+
+  topAbaPills.innerHTML = html
 }
 
 function setNotablesUnavailableState(metaMessage, rowMessage, statusMessage = 'notables-unavailable') {
@@ -2976,13 +2945,12 @@ function applySortAndRender() {
     const safeSpecies = escapeHtml(item.species)
     const safeCountyFull = escapeHtml(String(item.county || ''))
     const safeCountyShort = escapeHtml(shortCountyName(item.county))
-    const safeCountyRegion = escapeHtml(String(item.countyRegion || '').toUpperCase())
     row.dataset.species = item.species
     row.dataset.county = String(item.county || '')
     row.dataset.countyRegion = String(item.countyRegion || '').toUpperCase()
     row.innerHTML = `
       <td><div class="species-cell">${abaBadge}${yoloBadge}${statusBullets}<button type="button" class="species-btn" data-species="${safeSpecies}">${safeSpecies}</button></div></td>
-      <td class="col-county"><button type="button" class="county-link county-cell" data-county-region="${safeCountyRegion}" title="Pin ${safeCountyFull} to top">${safeCountyShort}</button></td>
+      <td class="col-county"><span class="county-cell" title="${safeCountyFull}">${safeCountyShort}</span></td>
       <td class="col-date col-last">${lastBubble}</td>
       <td class="col-date col-first">${firstBubble}</td>
       <td class="col-reports">${countPill}</td>
@@ -3169,7 +3137,7 @@ function renderNeighborCountyTables(rows, activeCountyRegion) {
 
     return `
       <section class="neighbor-table-card" data-neighbor-region="${safeRegion}">
-        <div class="neighbor-table-title"><button type="button" class="county-link" data-county-region="${safeRegion}" title="Pin ${title} to top">${escapeHtml(shortCountyName(name))}</button></div>
+        <div class="neighbor-table-title">${escapeHtml(shortCountyName(name))}</div>
         <div class="table-wrap">
           <table class="notable-table neighbor-table" aria-label="Neighbor county table">
             <thead>
@@ -4444,53 +4412,23 @@ countyPickerList?.addEventListener('click', (event) => {
   activateCountyFromOption(option)
 })
 
-document.querySelector('.stats-left')?.addEventListener('click', (e) => {
-  if (e.target.closest('.stat-aba-pill') || e.target.closest('#statsRight')) {
-    return
-  }
-  const pill = e.target.closest('.obs-stat')
-  if (!pill) {
-    selectedReviewFilter = null
-    selectedAbaCode = null
-    applyActiveFiltersAndRender()
-    return
-  }
-  if (pill.id === 'statConfirmed') {
-    selectedReviewFilter = selectedReviewFilter === 'confirmed' ? null : 'confirmed'
-    applyActiveFiltersAndRender()
-    return
-  }
-  if (pill.id === 'statPending') {
-    selectedReviewFilter = selectedReviewFilter === 'pending' ? null : 'pending'
-    applyActiveFiltersAndRender()
-    return
-  }
-})
-
 function activateAbaPill(pill) {
   if (!pill) return
   const parsedCode = Number(pill.dataset.code)
   if (!Number.isFinite(parsedCode)) return
   const code = Math.round(parsedCode)
-  if (code < 1 || code > 6) return
+  if (code < 1 || code > 5) return
   const current = Number.isFinite(Number(selectedAbaCode)) ? Math.round(Number(selectedAbaCode)) : null
-  if (current === code) {
-    selectedAbaCode = null
-    filterAbaMin = 1
-    if (filterAbaMinInput) filterAbaMinInput.value = '1'
-    updateFilterUi()
-  } else {
-    selectedAbaCode = code
-  }
+  selectedAbaCode = current === code ? null : code
   applyActiveFiltersAndRender()
 }
 
-document.querySelector('#statsRight')?.addEventListener('click', (e) => {
+document.querySelector('#topAbaPills')?.addEventListener('click', (e) => {
   const pill = e.target.closest('.stat-aba-pill')
   activateAbaPill(pill)
 })
 
-document.querySelector('#statsRight')?.addEventListener('keydown', (e) => {
+document.querySelector('#topAbaPills')?.addEventListener('keydown', (e) => {
   const pill = e.target.closest('.stat-aba-pill')
   if (!pill) return
   if (e.key === 'Enter' || e.key === ' ') {
@@ -4520,10 +4458,10 @@ document.addEventListener('click', (event) => {
   if (searchPopover && !searchPopover.hasAttribute('hidden') && !searchPopover.contains(target) && !menuSearchBtn.contains(target)) {
     searchPopover.setAttribute('hidden', 'hidden')
   }
-  if (countyPicker && !countyPicker.contains(target)) {
+  if (countyPicker && !countyPicker.contains(target) && !(headerCountyBtn && headerCountyBtn.contains(target))) {
     closeCountyPicker()
   }
-  if (abaCodePicker && !abaCodePicker.contains(target) && !statsRight.contains(target)) {
+  if (abaCodePicker && !abaCodePicker.contains(target) && !(topAbaPills && topAbaPills.contains(target))) {
     closeAbaCodePicker()
   }
   if (infoModal && !infoModal.hasAttribute('hidden')) {
@@ -4533,13 +4471,6 @@ document.addEventListener('click', (event) => {
 })
 
 notableRows.addEventListener('click', (event) => {
-  const countyLink = event.target.closest('.county-link')
-  if (countyLink) {
-    const region = String(countyLink.dataset.countyRegion || '').toUpperCase()
-    if (region) setActiveSortCountyRegion(region)
-    return
-  }
-
   const pinBtn = event.target.closest('.row-pin-btn')
   if (pinBtn) {
     const lat = pinBtn.dataset.lat
@@ -4620,13 +4551,6 @@ notableRows.addEventListener('click', (event) => {
       window.setTimeout(() => openObservationPopup(targetPt), 120)
     }
   }
-})
-
-neighborTables?.addEventListener('click', (event) => {
-  const countyLink = event.target.closest('.county-link')
-  if (!countyLink) return
-  const region = String(countyLink.dataset.countyRegion || '').toUpperCase()
-  if (region) setActiveSortCountyRegion(region)
 })
 
 document.querySelector('.notable-table thead').addEventListener('click', (event) => {
