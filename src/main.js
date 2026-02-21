@@ -2701,7 +2701,7 @@ function buildStateMaskGeojson(stateRegion, sourceGeojson) {
       properties: {
         ...(feature?.properties || {}),
         countyRegion: region,
-        isActiveCounty: true,
+        isActiveCounty: false,
       },
     }
   })
