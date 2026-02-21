@@ -2544,6 +2544,9 @@ function escapeHtml(value) {
 
 function parseObsDate(obsDt) {
   if (!obsDt) return null
+  if (obsDt instanceof Date) {
+    return Number.isNaN(obsDt.getTime()) ? null : obsDt
+  }
   const raw = String(obsDt).trim()
   if (!raw) return null
 
@@ -2571,19 +2574,7 @@ function parseObsDate(obsDt) {
 
 function formatShortDate(date) {
   if (!date) return ''
-  const mo = date.getMonth() + 1
-  const day = date.getDate()
-  const h = date.getHours()
-  const m = date.getMinutes()
-
-  // If the source was a date-only string, we parse as local midnight.
-  // Keep those compact (M/D) to avoid confusing 12:00a timestamps.
-  if (h === 0 && m === 0) return `${mo}/${day}`
-
-  const mm = String(m).padStart(2, '0')
-  const ampm = h >= 12 ? 'p' : 'a'
-  const h12 = h % 12 || 12
-  return `${mo}/${day} ${h12}:${mm}${ampm}`
+  return `${date.getMonth() + 1}/${date.getDate()}`
 }
 
 function formatObsDateTime(obsDt) {
@@ -2694,10 +2685,30 @@ function buildGroupedRowsFromObservations(observations) {
     const county = getItemCountyName(item)
     const countyRegion = String(item?.subnational2Code || '').toUpperCase() || null
     const key = `${species}::${state}::${county}`
-    const date = parseObsDate(item.obsDt)
+
+    // Some endpoints return raw observations (obsDt per row). Others may return
+    // already-aggregated rows with dedicated first/last fields.
+    const firstCandidate = parseObsDate(
+      item?.firstObsDt
+        ?? item?.firstObsDate
+        ?? item?.firstDt
+        ?? item?.first
+        ?? item?.obsDt
+    )
+    const lastCandidate = parseObsDate(
+      item?.lastObsDt
+        ?? item?.lastObsDate
+        ?? item?.lastDt
+        ?? item?.last
+        ?? item?.obsDt
+    )
+
     const abaCode = getAbaCodeNumber(item)
     const lat = Number(item.lat)
     const lng = Number(item.lng)
+
+    const explicitCount = Number(item?.count ?? item?.numObs ?? item?.numObservations)
+    const increment = Number.isFinite(explicitCount) ? Math.max(1, Math.round(explicitCount)) : 1
 
     if (!grouped.has(key)) {
       grouped.set(key, {
@@ -2706,8 +2717,8 @@ function buildGroupedRowsFromObservations(observations) {
         county,
         countyRegion,
         count: 0,
-        first: date,
-        last: date,
+        first: firstCandidate,
+        last: lastCandidate,
         abaCode,
         confirmedAny: isConfirmedObservation(item),
         lat: Number.isFinite(lat) ? lat : null,
@@ -2716,16 +2727,19 @@ function buildGroupedRowsFromObservations(observations) {
     }
 
     const entry = grouped.get(key)
-    entry.count += 1
+    entry.count += increment
     entry.confirmedAny = entry.confirmedAny || isConfirmedObservation(item)
     if (abaCode !== null) {
       if (entry.abaCode === null || entry.abaCode === undefined || abaCode > entry.abaCode) {
         entry.abaCode = abaCode
       }
     }
-    if (date) {
-      if (!entry.first || date < entry.first) entry.first = date
-      if (!entry.last || date > entry.last) entry.last = date
+
+    if (firstCandidate) {
+      if (!entry.first || firstCandidate < entry.first) entry.first = firstCandidate
+    }
+    if (lastCandidate) {
+      if (!entry.last || lastCandidate > entry.last) entry.last = lastCandidate
     }
   })
 
@@ -2820,13 +2834,13 @@ function buildStateCountySummaryRows(observations, stateRegion) {
     const confirmedCount = groupedRows.filter((row) => row.confirmedAny).length
     const pendingCount = Math.max(0, summary.rarityCount - confirmedCount)
     const latestDate = bucket.observations.reduce((latest, item) => {
-      const parsed = parseObsDate(item?.obsDt)
+      const parsed = parseObsDate(item?.lastObsDt ?? item?.last ?? item?.obsDt)
       if (!parsed) return latest
       if (!latest || parsed > latest) return parsed
       return latest
     }, null)
     const firstDate = bucket.observations.reduce((first, item) => {
-      const parsed = parseObsDate(item?.obsDt)
+      const parsed = parseObsDate(item?.firstObsDt ?? item?.first ?? item?.obsDt)
       if (!parsed) return first
       if (!first || parsed < first) return parsed
       return first
