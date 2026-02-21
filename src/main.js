@@ -2738,7 +2738,9 @@ function setLocationUiBlocked() {
 function updateUserLocationOnMap(latitude, longitude, accuracyMeters) {
   initializeMap()
   const hasAccuracy = Number.isFinite(accuracyMeters) && accuracyMeters > 0
-  const safeAccuracy = hasAccuracy ? accuracyMeters : null
+  const maxAccuracyCircleMeters = 3000
+  const shouldRenderAccuracyCircle = hasAccuracy && accuracyMeters <= maxAccuracyCircleMeters
+  const safeAccuracy = shouldRenderAccuracyCircle ? accuracyMeters : null
 
   if (!userDot) {
     userDot = L.circleMarker([latitude, longitude], {
@@ -2753,7 +2755,7 @@ function updateUserLocationOnMap(latitude, longitude, accuracyMeters) {
     userDot.setLatLng([latitude, longitude])
   }
 
-  if (!hasAccuracy) {
+  if (!shouldRenderAccuracyCircle) {
     if (accuracyCircle) {
       accuracyCircle.remove()
       accuracyCircle = null
@@ -2784,7 +2786,7 @@ function drawCountyOverlay(geojson) {
   const activeOverlayRegion = String(geojson?.activeCountyRegion || '').toUpperCase()
   const isStateOverlayMode = /^US-[A-Z]{2}$/.test(activeOverlayRegion)
   const neighborFeatures = isStateOverlayMode
-    ? allFeatures
+    ? []
     : allFeatures.filter((f) => !f?.properties?.isActiveCounty)
   const activeFeatures = isStateOverlayMode
     ? []
