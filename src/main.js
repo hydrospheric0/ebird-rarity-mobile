@@ -1963,7 +1963,7 @@ function renderAbaStatPills(sorted) {
     .map((c) => {
       const count = counts.get(c) || 0
       const isActive = selectedAbaCodes instanceof Set && selectedAbaCodes.has(c)
-      return `<button type="button" class="stat-aba-pill aba-code-${c}${isActive ? ' is-active' : ''}" data-code="${c}" aria-pressed="${isActive ? 'true' : 'false'}" title="Toggle ABA ${c} filter"><span class="aba-pill-count">${count}</span><span class="aba-pill-code">${c}</span></button>`
+      return `<button type="button" class="stat-aba-pill${isActive ? ' is-active' : ''}" data-code="${c}" aria-pressed="${isActive ? 'true' : 'false'}" title="Toggle ABA ${c} filter"><span class="stat-aba-pill-badge aba-code-${c}"><span class="aba-pill-count">${count}</span></span><span class="stat-aba-pill-code" aria-hidden="true">${c}</span></button>`
     })
     .join('')
 
