@@ -847,12 +847,27 @@ body {
 
 .notable-table .col-date {
   white-space: nowrap;
-  width: 2.45rem;
+  width: 2.3rem;
 }
 
 /* Keep a small visual gap between Last/First date bubbles in tight layouts */
-.notable-table tbody td:nth-child(2) { padding-right: 0.34rem; }
-.notable-table tbody td:nth-child(3) { padding-left: 0.34rem; }
+.notable-table td.col-last { padding-right: 0.34rem; }
+.notable-table td.col-first { padding-left: 0.34rem; }
+
+.notable-table .col-county {
+  width: 2.65rem;
+  white-space: nowrap;
+}
+
+.county-cell {
+  display: inline-block;
+  width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
 
 .notable-table .col-reports {
   text-align: right;
@@ -1092,7 +1107,7 @@ button.primary {
 /* Table visibility & pin columns */
 .col-vis,
 .col-pin {
-  width: 1.6rem;
+  width: 1.4rem;
   text-align: center;
   padding: 0 0.1rem;
 }
