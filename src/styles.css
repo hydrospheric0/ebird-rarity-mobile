@@ -7,8 +7,8 @@
   --brand: #0c1b50;
   --accent: #009688;
   --border: rgba(15, 23, 42, 0.12);
-  --bottom-select-height: 2.6rem;
-  --bottom-aba-height: 2.15rem;
+  --bottom-select-height: 2.85rem;
+  --bottom-aba-height: 2.35rem;
   --bottom-menu-height: calc(var(--bottom-select-height) + var(--bottom-aba-height));
 }
 
@@ -650,9 +650,10 @@ body {
   background: var(--brand);
   border-top: 1px solid rgba(255, 255, 255, 0.18);
   z-index: 1290;
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: center;
+  gap: 0.45rem;
   padding: 0 0.55rem;
 }
 
@@ -661,8 +662,15 @@ body {
   justify-content: center;
 }
 
+.aba-filter-label {
+  color: rgba(248, 250, 252, 0.92);
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .bottom-menu.bottom-select-menu {
-  background: var(--brand);
+  background: #374151;
   border-top: 1px solid rgba(255, 255, 255, 0.18);
   border-left: 0;
   border-right: 0;
@@ -678,6 +686,14 @@ body {
   z-index: 1300;
   height: calc(var(--bottom-select-height) + env(safe-area-inset-bottom));
   box-shadow: 0 10px 20px rgba(15, 23, 42, 0.16);
+}
+
+.bottom-select-menu .top-menu-select,
+.bottom-select-menu .top-menu-btn,
+.bottom-select-menu .menu-btn {
+  min-height: calc(var(--bottom-select-height) - 0.5rem);
+  padding: 0.32rem 0.5rem;
+  font-size: 0.78rem;
 }
 
 .bottom-select-menu #headerCountyBtn {
@@ -696,6 +712,19 @@ body {
   font-weight: 700;
   padding: 0.2rem 0.18rem;
   min-height: calc(var(--bottom-select-height) - 0.5rem);
+}
+
+.bottom-reload-btn {
+  width: 2.75rem;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.bottom-reload-btn svg {
+  width: 1.2rem;
+  height: 1.2rem;
 }
 
 .menu-btn.active {
@@ -949,8 +978,8 @@ body {
 }
 
 .top-aba-pills .stat-aba-pill {
-  padding: 0.08rem 0.38rem;
-  min-width: 1.25rem;
+  padding: 0.12rem 0.48rem;
+  min-width: 1.4rem;
   justify-content: center;
 }
 
@@ -1020,11 +1049,13 @@ body {
 
 .stat-aba-pill {
   display: inline-flex;
+  flex-direction: column;
   align-items: center;
-  gap: 0.05rem;
+  justify-content: center;
+  gap: 0.1rem;
   border-radius: 999px;
-  padding: 0.08rem 0.45rem;
-  font-size: 0.7rem;
+  padding: 0.14rem 0.56rem;
+  font-size: 0.72rem;
   font-weight: 700;
   color: #fff;
   line-height: 1;
@@ -1033,11 +1064,16 @@ body {
   opacity: 0.78;
   transition: padding 0.15s;
 }
-.stat-aba-pill-total {
-  background: #334155;
-  color: #ffffff;
-  opacity: 0.78;
-  cursor: default;
+
+.aba-pill-count {
+  font-size: 0.78rem;
+  line-height: 1;
+}
+
+.aba-pill-code {
+  font-size: 0.64rem;
+  line-height: 1;
+  opacity: 0.92;
 }
 .stat-aba-pill.obs-stat-expanded {
   padding: 0.08rem 0.6rem;

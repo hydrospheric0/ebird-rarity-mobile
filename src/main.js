@@ -102,9 +102,6 @@ app.innerHTML = `
     <main class="app-main">
       <section id="panelMap" class="panel active">
         <section class="card table-card">
-          <div class="table-top-menu" aria-label="Sort and ABA counts">
-            <button id="sortModeBtn" class="top-menu-select top-menu-btn sort-toggle-btn" type="button" aria-label="Toggle sort (ABA/distance)" aria-pressed="false" title="Sort: ABA (tap for distance)"><span class="sort-toggle-icon" aria-hidden="true">⌖</span><span class="sort-toggle-label">ABA</span></button>
-          </div>
           <div id="countyPicker" class="county-picker" hidden>
             <div class="county-picker-title">Counties</div>
             <div id="countyPickerList" class="county-picker-list" role="listbox" aria-label="County list"></div>
@@ -150,7 +147,9 @@ app.innerHTML = `
     </main>
 
     <div class="bottom-aba-bar" aria-label="ABA summary">
+      <div class="aba-filter-label">Filter ABA code:</div>
       <div id="topAbaPills" class="top-aba-pills" aria-label="ABA counts"></div>
+      <button id="sortModeBtn" class="top-menu-select top-menu-btn sort-toggle-btn" type="button" aria-label="Toggle sort (ABA/distance)" aria-pressed="false" title="Sort: ABA (tap for distance)"><span class="sort-toggle-icon" aria-hidden="true">⌖</span><span class="sort-toggle-label">ABA</span></button>
     </div>
 
     <nav class="bottom-menu bottom-select-menu" aria-label="Selection bar">
@@ -171,7 +170,12 @@ app.innerHTML = `
         <option value="14">14 days</option>
       </select>
 
-      <button id="bottomReloadBtn" class="menu-btn bottom-reload-btn" type="button" aria-label="Reload" title="Reload">Reload</button>
+      <button id="bottomReloadBtn" class="menu-btn bottom-reload-btn" type="button" aria-label="Reload" title="Reload">
+        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="23 4 23 10 17 10" />
+          <path d="M20.49 15a9 9 0 1 1 2.13-9" />
+        </svg>
+      </button>
     </nav>
 
     <div id="infoModal" class="app-modal" hidden>
@@ -358,6 +362,8 @@ let currentTableData = [] // all rows for re-sorting
 let lastTableObservationSource = []
 let sortState = { col: 'aba', dir: 'desc' } // col: 'aba'|'last'|'first'|'distance', dir: 'asc'|'desc'
 let activeSortCountyRegion = YOLO_COUNTY_REGION
+let pinnedSpecies = null
+let preservePinnedSpeciesOnce = false
 let latestLocationRequestId = 0
 let latestNotablesLoadId = 0
 let latestCountySwitchRequestId = 0
@@ -373,7 +379,7 @@ let filterAbaMin = 1
 let selectedReviewFilter = null
 let selectedSpecies = null
 let countyPickerOptions = []
-let selectedAbaCode = null
+let selectedAbaCodes = new Set()
 let abaCodePickerOptions = []
 let latestSearchCountyOptionsRequestId = 0
 let searchApplyInProgress = false
@@ -384,6 +390,7 @@ let tapDebugEvents = []
 let lastMapRenderSignature = ''
 let latestMapRenderId = 0
 const countySummaryByRegion = new Map()
+const stateSummaryByRegion = new Map()
 const stateCountyOptionsCache = new Map()
 const lastGoodObservationsByRegion = new Map()
 let lastGoodObservationSnapshot = null
@@ -646,14 +653,15 @@ function getAbaCodeNumber(item) {
   return Number.isFinite(Number(overrideCode)) ? Math.round(Number(overrideCode)) : null
 }
 
-function matchesAbaSelection(item, abaMinValue, selectedCode) {
+function matchesAbaSelection(item, abaMinValue, selectedCodes) {
   const code = getAbaCodeNumber(item)
-  const hasSelectedCode = selectedCode !== null && selectedCode !== undefined && selectedCode !== ''
-  const selected = hasSelectedCode ? Number(selectedCode) : null
-  if (selectedCode === 0 || selected === 0) return !Number.isFinite(code)
-  if (hasSelectedCode && Number.isFinite(selected)) {
-    const normalized = Math.round(selected)
-    return Number.isFinite(code) && code === normalized
+  const selected = selectedCodes instanceof Set ? selectedCodes : new Set()
+  const hasSelections = selected.size > 0
+  if (hasSelections) {
+    if (selected.has(0)) {
+      return !Number.isFinite(code)
+    }
+    return Number.isFinite(code) && selected.has(code)
   }
   if (!Number.isFinite(code)) return false
   const minCode = Math.max(1, Number(abaMinValue) || 1)
@@ -694,7 +702,7 @@ function applyActiveFiltersAndRender(options = {}) {
   // (in the table renderer), not for filtering.
   const pillObservationSource = filteredBySpecies
 
-  const filtered = pillObservationSource.filter((item) => matchesAbaSelection(item, abaMin, selectedAbaCode))
+  const filtered = pillObservationSource.filter((item) => matchesAbaSelection(item, abaMin, selectedAbaCodes))
 
   if (allowAutoRecovery && filtered.length === 0 && filteredByDays.length > 0) {
     let recovered = false
@@ -740,7 +748,7 @@ function syncFilterPillUi() {
   const abaPills = document.querySelectorAll('#topAbaPills .stat-aba-pill, .picker-aba-pills .stat-aba-pill')
   abaPills.forEach((pill) => {
     const code = Number(pill.dataset.code)
-    const isActive = Number.isFinite(Number(selectedAbaCode)) && Number(selectedAbaCode) === code
+    const isActive = Number.isFinite(code) && selectedAbaCodes instanceof Set && selectedAbaCodes.has(code)
     pill.classList.toggle('is-active', isActive)
     pill.setAttribute('aria-pressed', String(isActive))
   })
@@ -820,7 +828,11 @@ function updateAbaCodePickerOptions(source) {
   abaCodePickerOptions.push({ value: '0', label: `ABA 0 (none) · ${counts.get(0) || 0}` })
   abaCodePickerList.innerHTML = abaCodePickerOptions
     .map((opt, index) => {
-      const isActive = (opt.value === 'all' && selectedAbaCode === null) || Number(opt.value) === selectedAbaCode
+      const parsed = Number(opt.value)
+      const isAll = opt.value === 'all'
+      const isActive = isAll
+        ? (selectedAbaCodes.size === 0)
+        : (Number.isFinite(parsed) && selectedAbaCodes.has(Math.round(parsed)))
       return `<button type="button" class="county-option${isActive ? ' is-active' : ''}" data-index="${index}" role="option" aria-selected="${isActive ? 'true' : 'false'}">${escapeHtml(opt.label)}</button>`
     })
     .join('')
@@ -974,6 +986,13 @@ function filterObservationsToCountyRegion(observations, countyRegion) {
   return source.filter((item) => String(item?.subnational2Code || '').toUpperCase() === target)
 }
 
+function filterObservationsToStateRegion(observations, stateRegion) {
+  const target = String(stateRegion || '').toUpperCase()
+  const source = Array.isArray(observations) ? observations : []
+  if (!/^US-[A-Z]{2}$/.test(target)) return source
+  return source.filter((item) => String(item?.subnational1Code || '').toUpperCase() === target)
+}
+
 function summarizeCountyObservations(observations) {
   const grouped = new Map()
   ;(Array.isArray(observations) ? observations : []).forEach((item) => {
@@ -1049,6 +1068,33 @@ function getCountySummary(region, isActive) {
   if (!cached || !Array.isArray(cached.observations) || cached.observations.length === 0) return null
   const summary = summarizeCountyObservations(filterObservationsToCountyRegion(cached.observations, region))
   if (region) countySummaryByRegion.set(region, summary)
+  return summary
+}
+
+function getStateSummary(stateRegion, isActive) {
+  const region = String(stateRegion || '').toUpperCase()
+  if (!/^US-[A-Z]{2}$/.test(region)) return null
+
+  const activeRegion = String(currentCountyRegion || '').toUpperCase()
+  const canDeriveFromCurrent = activeRegion === region || activeRegion === US_REGION_CODE
+
+  if (canDeriveFromCurrent && Array.isArray(currentRawObservations) && currentRawObservations.length) {
+    const scoped = activeRegion === US_REGION_CODE
+      ? filterObservationsToStateRegion(currentRawObservations, region)
+      : currentRawObservations
+    const summary = summarizeCountyObservations(scoped)
+    stateSummaryByRegion.set(region, summary)
+    return summary
+  }
+
+  if (region && stateSummaryByRegion.has(region)) {
+    return stateSummaryByRegion.get(region) || null
+  }
+
+  const cached = loadNotablesCache(region)
+  if (!cached || !Array.isArray(cached.observations) || cached.observations.length === 0) return null
+  const summary = summarizeCountyObservations(cached.observations)
+  stateSummaryByRegion.set(region, summary)
   return summary
 }
 
@@ -1183,7 +1229,10 @@ function refreshCountyPickerSummaries() {
 function renderInfoTechMetrics() {
   if (!infoTechMetrics) return
   const activeRegion = String(currentActiveCountyCode || currentCountyRegion || '').toUpperCase() || '—'
-  const activeFiltersSummary = `days=${filterDaysBack} species=${selectedSpecies || 'all'} abaMin=${filterAbaMin} aba=${selectedAbaCode ?? 'all'} review=${selectedReviewFilter || 'all'}`
+  const abaSel = (selectedAbaCodes instanceof Set && selectedAbaCodes.size > 0)
+    ? Array.from(selectedAbaCodes).sort((a, b) => a - b).join(',')
+    : 'all'
+  const activeFiltersSummary = `days=${filterDaysBack} species=${selectedSpecies || 'all'} abaMin=${filterAbaMin} aba=${abaSel} review=${selectedReviewFilter || 'all'}`
   const lines = [
     `Build: ${BUILD_TAG}`,
     `API: ${apiStatus?.textContent || '—'}`,
@@ -1383,7 +1432,10 @@ function renderStatePickerOptions() {
     .map((state, index) => {
       const abbrev = getStateAbbrevByRegion(state.code)
       const isActive = String(state.code).toUpperCase() === String(activeState).toUpperCase()
-      return `<button type="button" class="county-option${isActive ? ' is-active' : ''}" data-index="${index}" role="option" aria-selected="${isActive ? 'true' : 'false'}">${escapeHtml(abbrev)} · ${escapeHtml(state.name)}</button>`
+      const summary = getStateSummary(state.code, isActive)
+      const pillsHtml = formatCountySummaryPills(summary)
+      const label = `${abbrev} · ${state.name}`
+      return `<button type="button" class="county-option${isActive ? ' is-active' : ''}" data-index="${index}" role="option" aria-selected="${isActive ? 'true' : 'false'}"><span class="county-option-name">${escapeHtml(label)}</span><span class="county-option-meta county-option-meta-pills">${pillsHtml}</span></button>`
     })
     .join('')
 }
@@ -1411,7 +1463,11 @@ function switchToCountyOption(option) {
 function resetFiltersForCountySwitch() {
   selectedSpecies = null
   selectedReviewFilter = null
-  selectedAbaCode = null
+  selectedAbaCodes = new Set()
+  if (!preservePinnedSpeciesOnce) {
+    pinnedSpecies = null
+  }
+  preservePinnedSpeciesOnce = false
   updateFilterUi()
   syncFilterPillUi()
 }
@@ -1894,7 +1950,7 @@ function updateStatPills(total, confirmed, pending) {
   // Confirmed/pending pills removed; keep function as a harmless no-op.
 }
 
-function renderAbaStatPills(sorted, totalCount = null) {
+function renderAbaStatPills(sorted) {
   if (!topAbaPills && !pickerAbaPills && !statePickerAbaPills) return
   const counts = new Map()
   sorted.forEach((item) => {
@@ -1903,14 +1959,11 @@ function renderAbaStatPills(sorted, totalCount = null) {
   })
 
   const orderedCodes = [1, 2, 3, 4, 5, 6]
-  const totalHtml = totalCount !== null
-    ? `<span class="stat-aba-pill stat-aba-pill-total" title="Total rows in table">${Number(totalCount) || 0}</span>`
-    : ''
-  const html = totalHtml + orderedCodes
+  const html = orderedCodes
     .map((c) => {
       const count = counts.get(c) || 0
-      const isActive = Number.isFinite(Number(selectedAbaCode)) && Number(selectedAbaCode) === c
-      return `<button type="button" class="stat-aba-pill aba-code-${c}${isActive ? ' is-active' : ''}" data-code="${c}" aria-pressed="${isActive ? 'true' : 'false'}" title="Toggle ABA ${c} filter">${count}</button>`
+      const isActive = selectedAbaCodes instanceof Set && selectedAbaCodes.has(c)
+      return `<button type="button" class="stat-aba-pill aba-code-${c}${isActive ? ' is-active' : ''}" data-code="${c}" aria-pressed="${isActive ? 'true' : 'false'}" title="Toggle ABA ${c} filter"><span class="aba-pill-count">${count}</span><span class="aba-pill-code">${c}</span></button>`
     })
     .join('')
 
@@ -3159,8 +3212,10 @@ function renderNotableTable(observations, countyName, regionCode, abaPillObserva
     notableCount.className = 'badge ok'
     notableCount.textContent = '0'
     updateStatPills('0', '0', '0')
-    renderAbaStatPills(Array.from(abaPillGrouped.values()), 0)
-    const activeAba = Number.isFinite(Number(selectedAbaCode)) ? Math.round(Number(selectedAbaCode)) : null
+    renderAbaStatPills(Array.from(abaPillGrouped.values()))
+    const activeAba = (selectedAbaCodes instanceof Set && selectedAbaCodes.size > 0)
+      ? Array.from(selectedAbaCodes)[0]
+      : null
     const days = Math.max(1, Math.min(14, Number(filterDaysBack) || 7))
     const emptyMessage = activeAba
       ? `No records for ABA ${activeAba} species in past ${days} days.`
@@ -3235,7 +3290,7 @@ function renderNotableTable(observations, countyName, regionCode, abaPillObserva
   notableCount.textContent = String(sorted.length)
   const confirmedCount = sorted.filter((r) => r.confirmedAny).length
   updateStatPills(sorted.length, confirmedCount, sorted.length - confirmedCount)
-  renderAbaStatPills(Array.from(abaPillGrouped.values()), sorted.length)
+  renderAbaStatPills(Array.from(abaPillGrouped.values()))
   currentTableData = sorted
   applySortAndRender()
 }
@@ -3342,7 +3397,7 @@ function renderStateCountySummaryTable(observations, countyName, stateRegion, ab
   notableMeta.dataset.regionCode = stateRegion || ''
 
   const abaPillGrouped = buildGroupedRowsFromObservations(abaPillObservations)
-  renderAbaStatPills(Array.from(abaPillGrouped.values()), stateRows.length)
+  renderAbaStatPills(Array.from(abaPillGrouped.values()))
 
   if (!stateRows.length) {
     notableCount.className = 'badge ok'
@@ -3397,6 +3452,19 @@ function applySortAndRender() {
   if (!currentTableData.length) return
   const { col, dir } = sortState
 
+  const regionCode = document.querySelector('#notableMeta')?.dataset?.regionCode || ''
+  const isYolo = regionCode === 'US-CA-113'
+
+  const getPreferredCode = (row) => {
+    if (isYolo) {
+      const yoloInfo = getYoloSpeciesInfo(row?.species)
+      const yoloCode = Number(yoloInfo?.yoloCode)
+      if (Number.isFinite(yoloCode)) return Math.round(yoloCode)
+    }
+    const aba = Number(row?.abaCode)
+    return Number.isFinite(aba) ? Math.round(aba) : -1
+  }
+
   const usePinning = col !== 'distance'
   const pinnedCandidate = String(activeSortCountyRegion || '').toUpperCase()
   const pinnedRegion = (usePinning && isCountyRegionCode(pinnedCandidate) && currentTableData.some((r) => String(r?.countyRegion || '').toUpperCase() === pinnedCandidate))
@@ -3404,6 +3472,12 @@ function applySortAndRender() {
     : (usePinning && currentTableData.some((r) => String(r?.countyRegion || '').toUpperCase() === YOLO_COUNTY_REGION) ? YOLO_COUNTY_REGION : '')
 
   const data = [...currentTableData].sort((a, b) => {
+    if (pinnedSpecies) {
+      const aPinnedSpecies = String(a?.species || '') === pinnedSpecies
+      const bPinnedSpecies = String(b?.species || '') === pinnedSpecies
+      if (aPinnedSpecies !== bPinnedSpecies) return aPinnedSpecies ? -1 : 1
+    }
+
     const aRegion = String(a?.countyRegion || '').toUpperCase()
     const bRegion = String(b?.countyRegion || '').toUpperCase()
     if (pinnedRegion) {
@@ -3412,8 +3486,8 @@ function applySortAndRender() {
       if (aPinned !== bPinned) return aPinned ? -1 : 1
     }
 
-    const aCode = Number.isFinite(a.abaCode) ? a.abaCode : -1
-    const bCode = Number.isFinite(b.abaCode) ? b.abaCode : -1
+    const aCode = getPreferredCode(a)
+    const bCode = getPreferredCode(b)
     const aLast = a.last?.getTime() ?? 0
     const bLast = b.last?.getTime() ?? 0
 
@@ -3421,6 +3495,7 @@ function applySortAndRender() {
       const aDist = Number.isFinite(a.distanceKm) ? a.distanceKm : Infinity
       const bDist = Number.isFinite(b.distanceKm) ? b.distanceKm : Infinity
       if (aDist !== bDist) return dir === 'desc' ? (bDist - aDist) : (aDist - bDist)
+      // Distance mode tie-breakers: code desc, then last desc.
       if (aCode !== bCode) return bCode - aCode
       if (aLast !== bLast) return bLast - aLast
       return String(a.species || '').localeCompare(String(b.species || ''))
@@ -3441,9 +3516,6 @@ function applySortAndRender() {
     if (aLast !== bLast) return bLast - aLast
     return String(a.species || '').localeCompare(String(b.species || ''))
   })
-  // Determine if this is Yolo (reuse regionCode stored on table)
-  const regionCode = document.querySelector('#notableMeta')?.dataset?.regionCode || ''
-  const isYolo = regionCode === 'US-CA-113'
   const fragment = document.createDocumentFragment()
   data.forEach((item) => {
     const lastBubble = renderDateBubble(formatShortDate(item.last), getDateBubbleClass('last', item.first, item.last))
@@ -4332,6 +4404,7 @@ async function loadStateNotables(stateRegion, requestId = null) {
       markMapPartReady('stateMask')
     }
     currentRawObservations = Array.isArray(observations) ? observations : []
+    saveNotablesCache(normalizedState, { observations: currentRawObservations })
     const stateCountyEntries = buildStateCountyEntries(currentRawObservations, stateRegion)
     stateCountyOptionsCache.set(stateRegion, stateCountyEntries)
     currentCountyName = getStateNameByRegion(normalizedState)
@@ -4856,8 +4929,9 @@ function activateAbaPill(pill) {
   if (!Number.isFinite(parsedCode)) return
   const code = Math.round(parsedCode)
   if (code < 1 || code > 6) return
-  const current = Number.isFinite(Number(selectedAbaCode)) ? Math.round(Number(selectedAbaCode)) : null
-  selectedAbaCode = current === code ? null : code
+  if (!(selectedAbaCodes instanceof Set)) selectedAbaCodes = new Set()
+  if (selectedAbaCodes.has(code)) selectedAbaCodes.delete(code)
+  else selectedAbaCodes.add(code)
   applyActiveFiltersAndRender({ allowAutoRecovery: false })
 }
 
@@ -4887,13 +4961,18 @@ abaCodePickerList?.addEventListener('click', (event) => {
   const index = Number(btn.dataset.index)
   const option = abaCodePickerOptions[index]
   if (!option) return
-  if (option.value === 'all') selectedAbaCode = null
-  else {
+  if (!(selectedAbaCodes instanceof Set)) selectedAbaCodes = new Set()
+  if (option.value === 'all') {
+    selectedAbaCodes = new Set()
+  } else {
     const parsedCode = Number(option.value)
-    selectedAbaCode = Number.isFinite(parsedCode) ? Math.round(parsedCode) : null
+    if (Number.isFinite(parsedCode)) {
+      const code = Math.round(parsedCode)
+      if (selectedAbaCodes.has(code)) selectedAbaCodes.delete(code)
+      else selectedAbaCodes.add(code)
+    }
   }
   applyActiveFiltersAndRender({ allowAutoRecovery: false })
-  closeAbaCodePicker()
 })
 
 document.addEventListener('click', (event) => {
@@ -4961,6 +5040,12 @@ notableRows.addEventListener('click', (event) => {
   if (!btn) return
   const species = btn.dataset.species
   if (!species) return
+
+  // Pin this species to the top of the table.
+  const wasPinned = pinnedSpecies === species
+  pinnedSpecies = wasPinned ? null : species
+  const pinnedNow = pinnedSpecies === species
+
   const row = btn.closest('tr')
   const rowCountyRegion = String(row?.dataset?.countyRegion || '').toUpperCase()
   const rowCountyName = String(row?.dataset?.county || '')
@@ -4968,6 +5053,7 @@ notableRows.addEventListener('click', (event) => {
   const isStateView = /^US-[A-Z]{2}$/.test(activeRegion)
 
   if (isStateView && rowCountyRegion) {
+    preservePinnedSpeciesOnce = true
     selectedSpecies = species
     const option = countyPickerOptions.find((opt) => String(opt.countyRegion || '').toUpperCase() === rowCountyRegion)
     if (option) {
@@ -4978,9 +5064,16 @@ notableRows.addEventListener('click', (event) => {
     return
   }
 
+  applySortAndRender()
+  const tableWrap = document.querySelector('.table-wrap')
+  if (pinnedNow && tableWrap) tableWrap.scrollTop = 0
+
   // Highlight row
   notableRows.querySelectorAll('tr.row-highlighted').forEach((r) => r.classList.remove('row-highlighted'))
-  if (row) row.classList.add('row-highlighted')
+  const escapedSpecies = String(species).replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+  const newBtn = notableRows.querySelector(`.species-btn[data-species="${escapedSpecies}"]`)
+  const newRow = newBtn?.closest('tr')
+  if (newRow) newRow.classList.add('row-highlighted')
 
   // Zoom map to point(s)
   const pts = speciesMarkers.get(species)
