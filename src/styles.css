@@ -143,29 +143,6 @@ body {
   gap: 0.3rem;
 }
 
-.map-county-label {
-  position: absolute;
-  left: 0.5rem;
-  bottom: 0.5rem;
-  z-index: 740;
-  max-width: calc(100% - 1rem);
-  padding: 0.12rem 0.55rem;
-  border-radius: 999px;
-  background: var(--brand);
-  color: #f8fafc;
-  font-size: 0.72rem;
-  font-weight: 800;
-  letter-spacing: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.18);
-}
-
-.map-county-label[hidden] {
-  display: none;
-}
-
 .obs-stat-county-label {
   flex: 1;
   min-width: 0;
@@ -228,6 +205,24 @@ body {
   padding: 0.2rem 0.45rem 0.35rem;
 }
 
+/* Full-height pickers (state + county) */
+#countyPicker:not([hidden]),
+#statePicker:not([hidden]) {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: var(--picker-top, 3.1rem);
+  bottom: calc(var(--bottom-menu-height) + env(safe-area-inset-bottom));
+  z-index: 1250;
+  border-top: 1px solid var(--border);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.22);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  overflow: hidden;
+  padding: 0.5rem 0.55rem 0.55rem;
+}
+
 .county-picker-title {
   font-size: 0.72rem;
   color: #64748b;
@@ -240,6 +235,19 @@ body {
   overflow-y: auto;
   display: grid;
   gap: 0.2rem;
+}
+
+#countyPicker .county-picker-list,
+#statePicker .county-picker-list {
+  max-height: none;
+  flex: 1 1 auto;
+  align-content: start;
+}
+
+.picker-aba-pills {
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--border);
+  flex: 0 0 auto;
 }
 
 .county-option {

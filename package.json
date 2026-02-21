@@ -1,6 +1,6 @@
 {
   "name": "mobile_rarity_mapper",
-  "version": "0.2.33",
+  "version": "0.3.1",
   "private": true,
   "type": "module",
   "scripts": {

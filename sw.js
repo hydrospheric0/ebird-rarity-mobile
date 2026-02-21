@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rarity-mobile-v1'
+const CACHE_NAME = 'rarity-mobile-v0.3.1'
 const APP_SHELL = [
   './',
   './index.html',
