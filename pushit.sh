@@ -39,8 +39,9 @@ The script will:
   0. Auto-bump patch version by default (+0.0.1, i.e. x.y.z -> x.y.(z+1)).
   1. Init git and wire up the remote if this is the first run.
   2. Stage + commit source changes to main.
-  3. Run `npm run build` (Vite).
-  4. Force-push the built dist/ contents to the gh-pages branch.
+  3. Create and push a git tag (vX.Y.Z) for the release.
+  4. Run `npm run build` (Vite).
+  5. Force-push the built dist/ contents to the gh-pages branch.
 EOF
 }
 
@@ -176,11 +177,23 @@ fi
 echo "📤 Pushing source to origin/$SOURCE_BRANCH..."
 git push -u origin "$SOURCE_BRANCH"
 
-# ── 4. Build ─────────────────────────────────────────────────────────────────
+# ── 4. Tag release ─────────────────────────────────────────────────────────
+git fetch --tags origin >/dev/null 2>&1 || true
+release_tag="v${next_version}"
+if git rev-parse -q --verify "refs/tags/${release_tag}" >/dev/null 2>&1; then
+  echo "ℹ️  Tag ${release_tag} already exists — skipping tag creation."
+else
+  echo "🏷️  Tagging release: ${release_tag}"
+  git tag -a "${release_tag}" -m "Release ${next_version}"
+fi
+echo "📤 Pushing tag ${release_tag}..."
+git push origin "${release_tag}"
+
+# ── 5. Build ─────────────────────────────────────────────────────────────────
 echo "🔨 Building with Vite..."
 npm run build
 
-# ── 5. Deploy dist/ → gh-pages ───────────────────────────────────────────────
+# ── 6. Deploy dist/ → gh-pages ───────────────────────────────────────────────
 echo "🚀 Deploying dist/ to $PAGES_BRANCH..."
 
 DIST_DIR="$(pwd)/dist"

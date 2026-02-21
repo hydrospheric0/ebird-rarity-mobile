@@ -40,7 +40,7 @@ body {
 .app-header {
   background: var(--brand);
   color: #f8fafc;
-  padding: 0.78rem 0.7rem 0.68rem;
+  padding: 0.55rem 0.7rem 0.5rem;
   border-bottom: 1px solid rgba(255, 255, 255, 0.18);
   position: relative;
   display: flex;
@@ -51,7 +51,7 @@ body {
 
 .app-title {
   margin: 0;
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   font-weight: 700;
   white-space: nowrap;
   overflow: hidden;
@@ -87,6 +87,22 @@ body {
   color: #ffffff;
   border-color: rgba(255, 255, 255, 0.28);
   text-align: right;
+}
+
+#headerCountyBtn {
+  width: min(28vw, 7.6rem);
+  background: #7c3aed;
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.28);
+  text-align: right;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.top-menu-btn {
+  border: 1px solid rgba(148, 163, 184, 0.5);
 }
 
 #headerDaysBackSelect {
@@ -678,6 +694,20 @@ body {
   border-radius: 0;
   border-top: none;
   box-shadow: 0 -3px 0 0 var(--card);
+}
+
+.table-top-menu {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.3rem 0.55rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.table-top-menu #headerCountySelect {
+  width: auto;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .obs-stats-bar {

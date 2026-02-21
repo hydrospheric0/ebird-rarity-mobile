@@ -13,18 +13,6 @@ app.innerHTML = `
     <header class="app-header">
       <h1 class="app-title">eBird County Rarities</h1>
 
-      <div class="top-menu" aria-label="Top menu">
-        <select id="headerCountySelect" class="top-menu-select" aria-label="County">
-          <option value="">Loading…</option>
-        </select>
-        <select id="headerDaysBackSelect" class="top-menu-select" aria-label="Days back">
-          <option value="1">1 day</option>
-          <option value="3">3 days</option>
-          <option value="7" selected>7 days</option>
-          <option value="14">14 days</option>
-        </select>
-      </div>
-
       <section id="statusPopover" class="status-popover status-hidden" aria-hidden="true">
         <div class="row">
           <span>API Connectivity</span>
@@ -82,6 +70,18 @@ app.innerHTML = `
     <main class="app-main">
       <section id="panelMap" class="panel active">
         <section class="card table-card">
+          <div class="table-top-menu" aria-label="County and days">
+            <button id="headerCountyBtn" class="top-menu-select top-menu-btn" type="button" aria-label="County" title="Choose county">Loading…</button>
+            <select id="headerCountySelect" class="top-menu-select" aria-label="County" hidden aria-hidden="true" tabindex="-1">
+              <option value="">Loading…</option>
+            </select>
+            <select id="headerDaysBackSelect" class="top-menu-select" aria-label="Days back">
+              <option value="1">1 day</option>
+              <option value="3">3 days</option>
+              <option value="7" selected>7 days</option>
+              <option value="14">14 days</option>
+            </select>
+          </div>
           <div class="obs-stats-bar">
             <div class="stats-left">
               <span id="statConfirmed" class="obs-stat obs-stat-confirmed" data-label="✓" tabindex="0" role="button" title="Confirmed">—</span>
@@ -209,6 +209,7 @@ const filterDaysBackInput = document.querySelector('#filterDaysBack')
 const filterDaysBackValue = document.querySelector('#filterDaysBackValue')
 const headerDaysBackSelect = document.querySelector('#headerDaysBackSelect')
 const headerCountySelect = document.querySelector('#headerCountySelect')
+const headerCountyBtn = document.querySelector('#headerCountyBtn')
 const filterAbaMinInput = document.querySelector('#filterAbaMin')
 const filterAbaMinValue = document.querySelector('#filterAbaMinValue')
 const statusPopover = document.querySelector('#statusPopover')
@@ -1216,6 +1217,7 @@ function refreshHeaderCountyOptions() {
     loadingOption.value = ''
     loadingOption.textContent = 'Loading…'
     headerCountySelect.appendChild(loadingOption)
+    if (headerCountyBtn) headerCountyBtn.textContent = 'Loading…'
     return
   }
   const activeRegion = String(currentCountyRegion || '').toUpperCase()
@@ -1246,6 +1248,11 @@ function refreshHeaderCountyOptions() {
   })
   const selectedIndex = options.findIndex((opt) => String(opt.countyRegion || '').toUpperCase() === activeRegion)
   headerCountySelect.selectedIndex = selectedIndex >= 0 ? selectedIndex : 0
+
+  if (headerCountyBtn) {
+    const selectedOpt = headerCountySelect.selectedOptions?.[0]
+    headerCountyBtn.textContent = selectedOpt?.textContent || String(options[headerCountySelect.selectedIndex]?.countyName || 'County')
+  }
 }
 
 function switchToCountyOption(option) {
@@ -1393,6 +1400,12 @@ function activateCountyFromOption(option) {
     if (headerIndex >= 0) {
       headerCountySelect.selectedIndex = headerIndex
     }
+  }
+
+  if (headerCountyBtn) {
+    const selectedOpt = headerCountySelect?.selectedOptions?.[0]
+    const fallbackName = option.countyName || 'County'
+    headerCountyBtn.textContent = selectedOpt?.textContent || String(fallbackName)
   }
   const resolvedOption = countyPickerOptions.find((opt) => String(opt.countyRegion || '').toUpperCase() === region) || option
   switchToCountyOption(resolvedOption)
@@ -4023,6 +4036,12 @@ headerDaysBackSelect?.addEventListener('change', (event) => {
   updateFilterUi()
   applyActiveFiltersAndRender({ fitToObservations: true })
 })
+
+headerCountyBtn?.addEventListener('click', (event) => {
+  event.preventDefault()
+  toggleCountyPicker()
+})
+
 headerCountySelect?.addEventListener('change', (event) => {
   const selectEl = event.target
   const countyRegion = String(selectEl?.value || '').toUpperCase()
