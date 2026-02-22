@@ -400,6 +400,11 @@ body.is-resizing {
   margin: 0.1rem 0 0.2rem;
 }
 
+#countyPicker .county-picker-title,
+#statePicker .county-picker-title {
+  display: none;
+}
+
 .county-picker-list {
   max-height: 9.2rem;
   overflow-y: auto;

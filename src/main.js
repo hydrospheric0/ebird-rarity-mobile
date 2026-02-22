@@ -391,6 +391,9 @@ const COUNTY_NOTABLES_TIMEOUT_MS = 5500
 const MAP_LABEL_MAX_POINTS = 80
 const USER_LOCATION_ZOOM = 11
 const MAP_POINTS_FIT_MAX_ZOOM = 11
+// When entering a county from a map click, zoom in enough that county-level
+// clustering is disabled (“explode” view).
+const COUNTY_EXPLODE_ZOOM = 13
 const MAP_RENDER_BATCH_SIZE = 260
 const BASE_TILE_OPTIONS = {
   updateWhenIdle: false,
@@ -467,6 +470,9 @@ let lastFilteredObservations = []
 let lastFilteredRegion = null
 let isSpeciesMode = false
 let speciesPickerOptions = []
+let explodeClustersOnNextCountySwitch = false
+let mapFitMaxZoomOnce = null
+let lastMapLocationIndex = new Map() // locKey -> [{ species, abaCode, obsDt, subId }]
 const countySummaryByRegion = new Map()
 const stateSummaryByRegion = new Map()
 const stateCountyOptionsCache = new Map()
@@ -1159,7 +1165,12 @@ function summarizeCountyObservations(observations) {
     const species = item?.comName || ''
     const state = String(item?.subnational1Code || '')
     const county = String(item?.subnational2Code || item?.subnational2Name || '')
-    const key = `${species}::${state}::${county}`
+    const lat = Number(item?.lat)
+    const lng = Number(item?.lng)
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
+    const locId = item?.locId ? String(item.locId) : ''
+    const locKey = locId || `${lat.toFixed(4)}|${lng.toFixed(4)}`
+    const key = `${species}::${state}::${county}::${locKey}`
     const abaCode = getAbaCodeNumber(item)
     if (!grouped.has(key)) {
       grouped.set(key, { abaCode })
@@ -1196,7 +1207,7 @@ function formatCountySummary(summary) {
 
 function formatCountySummaryPills(summary, options = {}) {
   if (!summary) return ''
-  const { includeTotal = true } = options || {}
+  const { includeTotal = true, includeNoCode = false } = options || {}
   const pills = []
   if (includeTotal) {
     pills.push(`<span class="county-pill county-pill-rarity" title="Total rarities">${summary.rarityCount}</span>`)
@@ -1205,6 +1216,12 @@ function formatCountySummaryPills(summary, options = {}) {
     const count = summary.abaCounts.get(code) || 0
     if (count > 0) {
       pills.push(`<span class="county-pill county-aba-pill aba-code-${code}" title="ABA ${code}: ${count}">${count}</span>`)
+    }
+  }
+  if (includeNoCode) {
+    const none = summary.abaCounts.get(0) || 0
+    if (none > 0) {
+      pills.push(`<span class="county-pill county-aba-pill aba-code-unknown" title="No ABA code: ${none}">${none}</span>`)
     }
   }
   return pills.join('')
@@ -1291,18 +1308,34 @@ function updateCountyDots() {
   const countsByCountyRegion = stateFiltered ? new Map() : null
   const maxAbaByCountyRegion = stateFiltered ? new Map() : null
   if (stateFiltered) {
-    // In state mode, county dots should reflect *table record counts* (grouped rows),
-    // not raw observations (which can be many checklists per species).
-    const grouped = buildGroupedRowsFromObservations(stateFiltered)
-    for (const row of grouped.values()) {
-      const countyRegion = String(row?.countyRegion || '').toUpperCase()
+    // In state mode, county dots should reflect unique species×location combinations
+    // (not raw observations and not just species×county grouped rows).
+    const seenKeysByCounty = new Map() // countyRegion -> Set(key)
+    for (const item of stateFiltered) {
+      const countyRegion = String(item?.subnational2Code || '').toUpperCase()
       if (!isCountyRegionCode(countyRegion)) continue
-      countsByCountyRegion.set(countyRegion, (countsByCountyRegion.get(countyRegion) || 0) + 1)
-      const code = Number(row?.abaCode)
+
+      const lat = Number(item?.lat)
+      const lng = Number(item?.lng)
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue
+
+      const species = String(item?.comName || 'Unknown species')
+      const locId = item?.locId ? String(item.locId) : ''
+      const locKey = locId || `${lat.toFixed(4)}|${lng.toFixed(4)}`
+      const key = `${species}|${locKey}`
+
+      if (!seenKeysByCounty.has(countyRegion)) seenKeysByCounty.set(countyRegion, new Set())
+      seenKeysByCounty.get(countyRegion).add(key)
+
+      const code = getAbaCodeNumber(item)
       if (Number.isFinite(code)) {
         const existing = maxAbaByCountyRegion.get(countyRegion) || 0
         if (code > existing) maxAbaByCountyRegion.set(countyRegion, code)
       }
+    }
+
+    for (const [countyRegion, keySet] of seenKeysByCounty.entries()) {
+      countsByCountyRegion.set(countyRegion, keySet.size)
     }
   }
 
@@ -1644,7 +1677,7 @@ function renderStatePickerOptions() {
       const abbrev = getStateAbbrevByRegion(state.code)
       const isActive = String(state.code).toUpperCase() === String(activeState).toUpperCase()
       const summary = getStateSummary(state.code, isActive)
-      const pillsHtml = formatCountySummaryPills(summary)
+      const pillsHtml = formatCountySummaryPills(summary, { includeTotal: false, includeNoCode: true })
       const label = `${abbrev} · ${state.name}`
       return `<button type="button" class="county-option${isActive ? ' is-active' : ''}" data-index="${index}" role="option" aria-selected="${isActive ? 'true' : 'false'}"><span class="county-option-name">${escapeHtml(label)}</span><span class="county-option-meta county-option-meta-pills">${pillsHtml}</span></button>`
     })
@@ -1762,6 +1795,7 @@ function switchCountyFromMapTap(countyRegion, lat = null, lng = null, countyName
   })
   // Route through the same activation path as the dropdown so the header county
   // UI stays in sync.
+  explodeClustersOnNextCountySwitch = true
   activateCountyByRegion(region, resolvedLat, resolvedLng, resolvedName)
 }
 
@@ -2997,7 +3031,7 @@ function drawCountyOverlay(geojson) {
   const activeOverlayRegion = String(geojson?.activeCountyRegion || '').toUpperCase()
   const isStateOverlayMode = /^US-[A-Z]{2}$/.test(activeOverlayRegion)
   const neighborFeatures = isStateOverlayMode
-    ? []
+    ? allFeatures
     : allFeatures.filter((f) => !f?.properties?.isActiveCounty)
   const activeFeatures = isStateOverlayMode
     ? []
@@ -3538,9 +3572,21 @@ function buildStateCountySummaryRows(observations, stateRegion) {
   })
 
   const rows = Array.from(buckets.values()).map((bucket) => {
-    const groupedRows = Array.from(buildGroupedRowsFromObservations(bucket.observations).values())
     const summary = summarizeCountyObservations(bucket.observations)
-    const confirmedCount = groupedRows.filter((row) => row.confirmedAny).length
+    const confirmedKeys = new Set()
+    for (const item of bucket.observations) {
+      const lat = Number(item?.lat)
+      const lng = Number(item?.lng)
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue
+      const species = item?.comName || ''
+      const state = String(item?.subnational1Code || '')
+      const county = String(item?.subnational2Code || item?.subnational2Name || '')
+      const locId = item?.locId ? String(item.locId) : ''
+      const locKey = locId || `${lat.toFixed(4)}|${lng.toFixed(4)}`
+      const key = `${species}::${state}::${county}::${locKey}`
+      if (isConfirmedObservation(item)) confirmedKeys.add(key)
+    }
+    const confirmedCount = confirmedKeys.size
     const pendingCount = Math.max(0, summary.rarityCount - confirmedCount)
     const latestDate = bucket.observations.reduce((latest, item) => {
       const parsed = parseFirstAvailableObsDate(item?.lastObsDt, item?.lastObsDate, item?.lastDt, item?.last, item?.obsDt)
@@ -3854,6 +3900,8 @@ const MARKER_RADIUS = 9        // px, logical
 const HIT_RADIUS = 12          // px, slightly larger for touch
 const CLUSTER_ZOOM_THRESHOLD = 10
 const CLUSTER_GRID_PX = 44
+const COUNTY_MILE_CLUSTER_RADIUS_KM = 1.60934
+const COUNTY_MILE_CLUSTER_ZOOM_THRESHOLD = 12
 
 let fastCanvasOverlay = null   // L.Layer instance
 let fastCanvasData = []        // rendered points for current zoom (clustered or raw)
@@ -3874,7 +3922,118 @@ function buildClusteredCanvasData(baseData, mapInstance) {
   if (!mapInstance) return Array.isArray(baseData) ? baseData : []
   const source = Array.isArray(baseData) ? baseData : []
   if (!source.length) return []
-  if (mapInstance.getZoom() > CLUSTER_ZOOM_THRESHOLD) return source
+
+  const zoom = mapInstance.getZoom()
+  const isCountyView = isCountyRegionCode(String(currentActiveCountyCode || '').toUpperCase())
+
+  // In county views, cluster geographically (within ~1 mile) and count *unique species*
+  // within each geographic cluster.
+  if (isCountyView && zoom <= COUNTY_MILE_CLUSTER_ZOOM_THRESHOLD) {
+    const radiusKm = COUNTY_MILE_CLUSTER_RADIUS_KM
+    const cellSizeM = radiusKm * 1000
+
+    const toMercator = (lat, lng) => {
+      const R = 6378137
+      const x = R * (lng * Math.PI / 180)
+      const y = R * Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI / 180) / 2))
+      return { x, y }
+    }
+
+    const projected = source.map((pt) => {
+      const { x, y } = toMercator(pt.lat, pt.lng)
+      const cx = Math.floor(x / cellSizeM)
+      const cy = Math.floor(y / cellSizeM)
+      return { x, y, cx, cy }
+    })
+
+    const cellMap = new Map() // key -> indices
+    for (let i = 0; i < source.length; i += 1) {
+      const pr = projected[i]
+      const key = `${pr.cx}:${pr.cy}`
+      if (!cellMap.has(key)) cellMap.set(key, [])
+      cellMap.get(key).push(i)
+    }
+
+    const visited = new Array(source.length).fill(false)
+    const clusters = []
+
+    for (let i = 0; i < source.length; i += 1) {
+      const seed = source[i]
+      if (!seed || seed.hidden) { visited[i] = true; continue }
+      if (visited[i]) continue
+      visited[i] = true
+
+      const queue = [i]
+      const memberIdx = [i]
+
+      while (queue.length) {
+        const idx = queue.pop()
+        const pr = projected[idx]
+        const base = source[idx]
+
+        for (let dx = -1; dx <= 1; dx += 1) {
+          for (let dy = -1; dy <= 1; dy += 1) {
+            const key = `${pr.cx + dx}:${pr.cy + dy}`
+            const candidates = cellMap.get(key)
+            if (!candidates) continue
+            for (const candIdx of candidates) {
+              if (visited[candIdx]) continue
+              const cand = source[candIdx]
+              if (!cand || cand.hidden) { visited[candIdx] = true; continue }
+              if (distanceKm(base.lat, base.lng, cand.lat, cand.lng) <= radiusKm) {
+                visited[candIdx] = true
+                queue.push(candIdx)
+                memberIdx.push(candIdx)
+              }
+            }
+          }
+        }
+      }
+
+      if (memberIdx.length === 1) {
+        clusters.push(seed)
+        continue
+      }
+
+      let latSum = 0
+      let lngSum = 0
+      let maxAbaCode = null
+      const speciesSet = new Set()
+      for (const idx of memberIdx) {
+        const pt = source[idx]
+        latSum += pt.lat
+        lngSum += pt.lng
+        speciesSet.add(String(pt.species || ''))
+        if (Number.isFinite(pt.abaCode) && (!Number.isFinite(maxAbaCode) || pt.abaCode > maxAbaCode)) {
+          maxAbaCode = pt.abaCode
+        }
+      }
+
+      const speciesCount = speciesSet.size
+      const abaCode = Number.isFinite(maxAbaCode) ? maxAbaCode : null
+      const colors = ABA_COLORS[abaCode] || ABA_DEFAULT_COLOR
+      clusters.push({
+        lat: latSum / memberIdx.length,
+        lng: lngSum / memberIdx.length,
+        fill: colors.fill,
+        border: colors.border,
+        species: `${speciesCount} species`,
+        safeSpecies: escapeHtml(`${speciesCount} species`),
+        abaCode,
+        subIds: [],
+        subDates: [],
+        item: seed?.item || null,
+        label: String(speciesCount),
+        hidden: false,
+        isCluster: true,
+        clusterCount: speciesCount,
+      })
+    }
+
+    return clusters
+  }
+
+  if (zoom > CLUSTER_ZOOM_THRESHOLD) return source
 
   const buckets = new Map()
   source.forEach((pt) => {
