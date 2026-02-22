@@ -382,7 +382,7 @@ body.is-resizing {
   left: 0;
   right: 0;
   top: var(--picker-top, 3.1rem);
-  bottom: calc(var(--bottom-menu-height) + env(safe-area-inset-bottom));
+  bottom: calc(var(--bottom-select-height) + env(safe-area-inset-bottom));
   z-index: 1250;
   border-top: 1px solid var(--border);
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.22);
