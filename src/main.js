@@ -108,6 +108,10 @@ app.innerHTML = `
             <div id="countyPickerList" class="county-picker-list" role="listbox" aria-label="County list"></div>
             <div id="pickerAbaPills" class="top-aba-pills picker-aba-pills" aria-label="ABA counts"></div>
           </div>
+          <div id="speciesPicker" class="county-picker" hidden>
+            <div class="county-picker-title">Species</div>
+            <div id="speciesPickerList" class="county-picker-list" role="listbox" aria-label="Species list"></div>
+          </div>
           <div id="statePicker" class="county-picker" hidden>
             <div class="county-picker-title">States</div>
             <div id="statePickerList" class="county-picker-list" role="listbox" aria-label="State list"></div>
@@ -155,6 +159,7 @@ app.innerHTML = `
     </div>
 
     <nav class="bottom-menu bottom-select-menu" aria-label="Selection bar">
+      <button id="modeToggleBtn" class="menu-btn bottom-mode-btn" type="button" aria-label="Toggle Species mode" aria-pressed="false" title="Toggle Species mode">⇅</button>
       <button id="headerStateBtn" class="top-menu-select top-menu-btn bottom-select" type="button" aria-label="State" title="Choose state">CA</button>
       <select id="headerStateSelect" class="top-menu-select" aria-label="State" hidden aria-hidden="true" tabindex="-1">
         <option value="US-CA">California</option>
@@ -165,11 +170,13 @@ app.innerHTML = `
         <option value="">Loading…</option>
       </select>
 
+      <button id="headerSpeciesBtn" class="top-menu-select top-menu-btn bottom-select" type="button" aria-label="Species" title="Choose species" hidden>All</button>
+
       <select id="headerDaysBackSelect" class="top-menu-select bottom-select" aria-label="Days back">
-        <option value="1">1 day</option>
-        <option value="3">3 days</option>
-        <option value="7" selected>7 days</option>
-        <option value="14">14 days</option>
+        <option value="1">1d</option>
+        <option value="3">3d</option>
+        <option value="7" selected>7d</option>
+        <option value="14">14d</option>
       </select>
 
       <button id="bottomReloadBtn" class="menu-btn bottom-reload-btn" type="button" aria-label="Reload" title="Reload">
@@ -242,8 +249,10 @@ const filterDaysBackValue = document.querySelector('#filterDaysBackValue')
 const headerDaysBackSelect = document.querySelector('#headerDaysBackSelect')
 const headerCountySelect = document.querySelector('#headerCountySelect')
 const headerCountyBtn = document.querySelector('#headerCountyBtn')
+const headerSpeciesBtn = document.querySelector('#headerSpeciesBtn')
 const headerStateSelect = document.querySelector('#headerStateSelect')
 const headerStateBtn = document.querySelector('#headerStateBtn')
+const modeToggleBtn = document.querySelector('#modeToggleBtn')
 const sortModeBtn = document.querySelector('#sortModeBtn')
 const filterAbaMinInput = document.querySelector('#filterAbaMin')
 const filterAbaMinValue = document.querySelector('#filterAbaMinValue')
@@ -290,6 +299,8 @@ const topAbaPills = document.querySelector('#topAbaPills')
 const countyPicker = document.querySelector('#countyPicker')
 const countyPickerList = document.querySelector('#countyPickerList')
 const pickerAbaPills = document.querySelector('#pickerAbaPills')
+const speciesPicker = document.querySelector('#speciesPicker')
+const speciesPickerList = document.querySelector('#speciesPickerList')
 const statePicker = document.querySelector('#statePicker')
 const statePickerList = document.querySelector('#statePickerList')
 const statePickerAbaPills = document.querySelector('#statePickerAbaPills')
@@ -393,6 +404,8 @@ let lastMapRenderSignature = ''
 let latestMapRenderId = 0
 let lastFilteredObservations = []
 let lastFilteredRegion = null
+let isSpeciesMode = false
+let speciesPickerOptions = []
 const countySummaryByRegion = new Map()
 const stateSummaryByRegion = new Map()
 const stateCountyOptionsCache = new Map()
@@ -694,6 +707,8 @@ function applyActiveFiltersAndRender(options = {}) {
     if (selectedReviewFilter === 'pending') return !isConfirmedObservation(item)
     return true
   })
+
+  updateSpeciesPickerOptions(filteredByStatus)
   const filteredBySpecies = selectedSpecies
     ? filteredByStatus.filter((item) => String(item?.comName || '') === selectedSpecies)
     : filteredByStatus
@@ -730,6 +745,8 @@ function applyActiveFiltersAndRender(options = {}) {
   renderNotableTable(filtered, currentCountyName, currentCountyRegion, abaPillSource)
   lastFilteredObservations = filtered
   lastFilteredRegion = activeRegion
+  syncSpeciesModeUi()
+  updateSpeciesButtonLabel()
   if (renderMap) {
     renderNotablesOnMap(
       isNationalSummaryMode ? [] : filtered,
@@ -740,6 +757,74 @@ function applyActiveFiltersAndRender(options = {}) {
   syncFilterPillUi()
   updateCountyDots()
   return filtered
+}
+
+function updateSpeciesPickerOptions(source) {
+  const input = Array.isArray(source) ? source : []
+  const maxAbaBySpecies = new Map()
+  for (const item of input) {
+    const name = String(item?.comName || '').trim()
+    if (!name) continue
+    const code = getAbaCodeNumber(item)
+    const prev = maxAbaBySpecies.get(name)
+    if (!maxAbaBySpecies.has(name)) {
+      maxAbaBySpecies.set(name, Number.isFinite(code) ? code : null)
+      continue
+    }
+    if (Number.isFinite(code) && (!Number.isFinite(prev) || code > prev)) {
+      maxAbaBySpecies.set(name, code)
+    }
+  }
+
+  speciesPickerOptions = Array.from(maxAbaBySpecies.entries())
+    .map(([name, maxAba]) => ({ name, maxAba }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+
+  renderSpeciesPickerOptions()
+}
+
+function renderSpeciesPickerOptions() {
+  if (!speciesPickerList) return
+  const allActive = !selectedSpecies
+  const rows = []
+  rows.push(
+    `<button type="button" class="county-option${allActive ? ' is-active' : ''}" data-species="" role="option" aria-selected="${allActive ? 'true' : 'false'}"><span class="county-option-name">All species</span><span class="county-option-meta county-option-meta-pills"></span></button>`
+  )
+  for (const opt of speciesPickerOptions) {
+    const isActive = selectedSpecies === opt.name
+    const badge = renderAbaCodeBadge(opt.maxAba)
+    rows.push(
+      `<button type="button" class="county-option${isActive ? ' is-active' : ''}" data-species="${escapeHtml(opt.name)}" role="option" aria-selected="${isActive ? 'true' : 'false'}"><span class="county-option-name">${escapeHtml(opt.name)}</span><span class="county-option-meta county-option-meta-pills">${badge}</span></button>`
+    )
+  }
+  speciesPickerList.innerHTML = rows.join('')
+}
+
+function updateSpeciesButtonLabel() {
+  if (!headerSpeciesBtn) return
+  headerSpeciesBtn.textContent = selectedSpecies ? String(selectedSpecies) : 'All'
+}
+
+function syncSpeciesModeUi() {
+  if (!modeToggleBtn || !headerCountyBtn || !headerSpeciesBtn) return
+  modeToggleBtn.setAttribute('aria-pressed', String(isSpeciesMode))
+  modeToggleBtn.classList.toggle('active', isSpeciesMode)
+  headerCountyBtn.toggleAttribute('hidden', isSpeciesMode)
+  headerSpeciesBtn.toggleAttribute('hidden', !isSpeciesMode)
+}
+
+function closeSpeciesPicker() {
+  if (!speciesPicker) return
+  speciesPicker.setAttribute('hidden', 'hidden')
+}
+
+function toggleSpeciesPicker() {
+  if (!speciesPicker || !speciesPickerList) return
+  closeCountyPicker()
+  closeStatePicker()
+  closeAbaCodePicker()
+  if (speciesPicker.hasAttribute('hidden')) speciesPicker.removeAttribute('hidden')
+  else speciesPicker.setAttribute('hidden', 'hidden')
 }
 
 function setPillExpandedLabel(pill, prefix) {
@@ -808,6 +893,7 @@ function toggleCountyPicker() {
   if (!countyPicker || !countyPickerList) return
   closeStatePicker()
   closeAbaCodePicker()
+  closeSpeciesPicker()
   if (countyPicker.hasAttribute('hidden')) countyPicker.removeAttribute('hidden')
   else countyPicker.setAttribute('hidden', 'hidden')
 }
@@ -815,6 +901,7 @@ function toggleCountyPicker() {
 function toggleAbaCodePicker() {
   if (!abaCodePicker || !abaCodePickerList) return
   closeCountyPicker()
+  closeSpeciesPicker()
   if (abaCodePicker.hasAttribute('hidden')) abaCodePicker.removeAttribute('hidden')
   else abaCodePicker.setAttribute('hidden', 'hidden')
 }
@@ -3081,7 +3168,7 @@ function formatObsDateTime(obsDt) {
   const m = String(d.getMinutes()).padStart(2, '0')
   const ampm = h >= 12 ? 'pm' : 'am'
   const h12 = h % 12 || 12
-  return `${mo}/${day} ${h12}:${m}${ampm}`
+  return `${mo}/${day} - ${h12}:${m}${ampm}`
 }
 
 function dayOffsetFromToday(date) {
@@ -3921,7 +4008,8 @@ function buildObservationPopupHtml(pt) {
     : ''
 
   const checklistItems = (pt.subIds || []).map((sid, i) => {
-    const label = formatObsDateTime(pt.subDates?.[i])
+    const dt = formatObsDateTime(pt.subDates?.[i])
+    const label = `${dt} - ${String(sid)}`
     return `<li><a href="https://ebird.org/checklist/${encodeURIComponent(sid)}" target="_blank" rel="noopener">${escapeHtml(label)}</a></li>`
   })
   const checklistSection = checklistItems.length
@@ -4805,6 +4893,20 @@ headerCountyBtn?.addEventListener('click', (event) => {
   toggleCountyPicker()
 })
 
+headerSpeciesBtn?.addEventListener('click', (event) => {
+  event.preventDefault()
+  toggleSpeciesPicker()
+})
+
+modeToggleBtn?.addEventListener('click', (event) => {
+  event.preventDefault()
+  isSpeciesMode = !isSpeciesMode
+  if (isSpeciesMode) closeCountyPicker()
+  else closeSpeciesPicker()
+  syncSpeciesModeUi()
+  updateSpeciesButtonLabel()
+})
+
 headerStateBtn?.addEventListener('click', (event) => {
   event.preventDefault()
   renderStatePickerOptions()
@@ -4999,6 +5101,15 @@ countyPickerList?.addEventListener('click', (event) => {
   activateCountyFromOption(option)
 })
 
+speciesPickerList?.addEventListener('click', (event) => {
+  const btn = event.target.closest('.county-option')
+  if (!btn) return
+  const species = String(btn.dataset.species || '').trim()
+  closeSpeciesPicker()
+  selectedSpecies = species || null
+  applyActiveFiltersAndRender({ allowAutoRecovery: false })
+})
+
 statePickerList?.addEventListener('click', async (event) => {
   const btn = event.target.closest('.county-option')
   if (!btn) return
@@ -5016,8 +5127,8 @@ function activateAbaPill(pill) {
   const code = Math.round(parsedCode)
   if (code < 1 || code > 6) return
   if (!(selectedAbaCodes instanceof Set)) selectedAbaCodes = new Set()
-  if (selectedAbaCodes.has(code)) selectedAbaCodes.delete(code)
-  else selectedAbaCodes.add(code)
+  const isOnlyThis = selectedAbaCodes.size === 1 && selectedAbaCodes.has(code)
+  selectedAbaCodes = isOnlyThis ? new Set() : new Set([code])
   applyActiveFiltersAndRender({ allowAutoRecovery: false })
 }
 
@@ -5054,8 +5165,8 @@ abaCodePickerList?.addEventListener('click', (event) => {
     const parsedCode = Number(option.value)
     if (Number.isFinite(parsedCode)) {
       const code = Math.round(parsedCode)
-      if (selectedAbaCodes.has(code)) selectedAbaCodes.delete(code)
-      else selectedAbaCodes.add(code)
+      const isOnlyThis = selectedAbaCodes.size === 1 && selectedAbaCodes.has(code)
+      selectedAbaCodes = isOnlyThis ? new Set() : new Set([code])
     }
   }
   applyActiveFiltersAndRender({ allowAutoRecovery: false })
@@ -5069,6 +5180,9 @@ document.addEventListener('click', (event) => {
   }
   if (countyPicker && !countyPicker.contains(target) && !(headerCountyBtn && headerCountyBtn.contains(target))) {
     closeCountyPicker()
+  }
+  if (speciesPicker && !speciesPicker.contains(target) && !(headerSpeciesBtn && headerSpeciesBtn.contains(target))) {
+    closeSpeciesPicker()
   }
   if (statePicker && !statePicker.contains(target) && !(headerStateBtn && headerStateBtn.contains(target))) {
     closeStatePicker()

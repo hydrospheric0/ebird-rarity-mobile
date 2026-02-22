@@ -685,7 +685,7 @@ body {
   border-left: 0;
   border-right: 0;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 0.28rem;
   padding: 0.28rem 0.55rem env(safe-area-inset-bottom);
@@ -712,6 +712,18 @@ body {
 
 .bottom-select-menu #headerStateBtn {
   width: 3.1rem;
+}
+
+.bottom-select-menu #modeToggleBtn {
+  width: 2.35rem;
+  padding: 0;
+}
+
+.bottom-select-menu #headerDaysBackSelect {
+  width: 3.05rem;
+  text-align: center;
+  padding-left: 0.35rem;
+  padding-right: 0.35rem;
 }
 
 .menu-btn {
