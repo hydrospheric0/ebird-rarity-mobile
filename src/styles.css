@@ -140,28 +140,6 @@ body {
   border-color: rgba(255, 255, 255, 0.28);
 }
 
-#sortModeBtn {
-  width: auto;
-  min-width: 2.1rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.35rem;
-  padding-left: 0.5rem;
-  padding-right: 0.5rem;
-}
-
-#sortModeBtn .sort-toggle-label {
-  font-weight: 700;
-  font-size: 0.82rem;
-}
-
-.sort-toggle-btn.is-active {
-  background: #334155;
-  color: #ffffff;
-  border-color: rgba(255, 255, 255, 0.18);
-}
-
 .api-key-gate {
   position: fixed;
   inset: 0;
@@ -679,7 +657,7 @@ body.is-resizing {
   border-top: 1px solid rgba(255, 255, 255, 0.18);
   z-index: 1290;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 0.45rem;
   padding: 0 0.55rem;
@@ -687,7 +665,7 @@ body.is-resizing {
 
 .bottom-aba-bar .top-aba-pills {
   margin-left: 0;
-  justify-content: center;
+  justify-content: flex-end;
 }
 
 .aba-filter-label {

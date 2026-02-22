@@ -157,7 +157,6 @@ app.innerHTML = `
     <div class="bottom-aba-bar" aria-label="ABA summary">
       <div class="aba-filter-label">ABA code:</div>
       <div id="topAbaPills" class="top-aba-pills" aria-label="ABA counts"></div>
-      <button id="sortModeBtn" class="top-menu-select top-menu-btn sort-toggle-btn" type="button" aria-label="Toggle sort (ABA/distance)" aria-pressed="false" title="Sort: ABA (tap for distance)"><span class="sort-toggle-icon" aria-hidden="true">⌖</span><span class="sort-toggle-label">ABA</span></button>
     </div>
 
     <nav class="bottom-menu bottom-select-menu" aria-label="Selection bar">
@@ -255,7 +254,6 @@ const headerSpeciesBtn = document.querySelector('#headerSpeciesBtn')
 const headerStateSelect = document.querySelector('#headerStateSelect')
 const headerStateBtn = document.querySelector('#headerStateBtn')
 const modeToggleBtn = document.querySelector('#modeToggleBtn')
-const sortModeBtn = document.querySelector('#sortModeBtn')
 const filterAbaMinInput = document.querySelector('#filterAbaMin')
 const filterAbaMinValue = document.querySelector('#filterAbaMinValue')
 const statusPopover = document.querySelector('#statusPopover')
@@ -971,15 +969,15 @@ function toggleAbaCodePicker() {
 
 function updateAbaCodePickerOptions(source) {
   if (!abaCodePickerList) return
-  const counts = new Map([[0, 0], [1, 0], [2, 0], [3, 0], [4, 0], [5, 0], [6, 0]])
+  const counts = new Map([[0, 0], [1, 0], [2, 0], [3, 0], [4, 0], [5, 0]])
   ;(Array.isArray(source) ? source : []).forEach((item) => {
     const code = getAbaCodeNumber(item)
-    if (Number.isFinite(code) && code >= 1 && code <= 6) counts.set(code, (counts.get(code) || 0) + 1)
+    if (Number.isFinite(code) && code >= 1 && code <= 5) counts.set(code, (counts.get(code) || 0) + 1)
     else counts.set(0, (counts.get(0) || 0) + 1)
   })
   const allCount = Array.from(counts.values()).reduce((sum, val) => sum + val, 0)
   abaCodePickerOptions = [{ value: 'all', label: `Show all codes · ${allCount}` }]
-  for (let code = 1; code <= 6; code += 1) {
+  for (let code = 1; code <= 5; code += 1) {
     abaCodePickerOptions.push({ value: String(code), label: `ABA ${code} · ${counts.get(code) || 0}` })
   }
   abaCodePickerOptions.push({ value: '0', label: `ABA 0 (none) · ${counts.get(0) || 0}` })
@@ -1306,7 +1304,7 @@ function updateCountyDots() {
   const selected = selectedAbaCodes instanceof Set ? selectedAbaCodes : new Set()
   const hasAbaSelection = selected.size > 0
   const selectedCodes = hasAbaSelection
-    ? Array.from(selected).map((v) => Math.round(Number(v))).filter((c) => Number.isFinite(c) && c >= 1 && c <= 6)
+    ? Array.from(selected).map((v) => Math.round(Number(v))).filter((c) => Number.isFinite(c) && c >= 1 && c <= 5)
     : []
   const highestSelectedCode = selectedCodes.length ? Math.max(...selectedCodes) : null
 
@@ -2166,7 +2164,7 @@ function renderAbaStatPills(sorted) {
     if (code !== null) counts.set(code, (counts.get(code) || 0) + 1)
   })
 
-  const orderedCodes = [1, 2, 3, 4, 5, 6]
+  const orderedCodes = [1, 2, 3, 4, 5]
   const html = orderedCodes
     .map((c) => {
       const count = counts.get(c) || 0
@@ -3476,10 +3474,8 @@ function renderNotableTable(observations, countyName, regionCode, abaPillObserva
         return String(a.species || '').localeCompare(String(b.species || ''))
       })
 
-    // Default to distance sort when entering state mode.
-    if (!/^US-[A-Z]{2}$/.test(previousRegion) && sortState.col !== 'distance') {
-      sortState = { col: 'distance', dir: 'asc' }
-    }
+    // Keep the current sort (no distance toggle UI).
+    if (sortState?.col === 'distance') sortState = { col: 'code', dir: 'desc' }
     notableMeta.textContent = `${countyName || normalizedRegion} · ${normalizedRegion}`
   } else {
     sorted = sorted.sort((a, b) => {
@@ -3805,20 +3801,7 @@ function applySortAndRender() {
       th.classList.remove('sort-active')
     }
   })
-  updateSortModeBtnUi()
   setTableRenderStatus(`sorted:${col}:${dir} rows=${data.length}`)
-}
-
-function updateSortModeBtnUi() {
-  if (!sortModeBtn) return
-  const isDistance = sortState?.col === 'distance'
-  const label = sortModeBtn.querySelector('.sort-toggle-label')
-  if (label) label.textContent = isDistance ? 'distance' : 'ABA'
-  sortModeBtn.setAttribute('aria-pressed', isDistance ? 'true' : 'false')
-  sortModeBtn.classList.toggle('is-active', isDistance)
-  sortModeBtn.title = isDistance
-    ? 'Sort: Distance (tap for ABA)'
-    : 'Sort: ABA (tap for distance)'
 }
 
 function ensureDistanceKmForCurrentTableData() {
@@ -5365,16 +5348,6 @@ document.querySelector('.notable-table thead').addEventListener('click', (event)
   } else {
     sortState.col = col
     sortState.dir = (col === 'species' || col === 'county') ? 'asc' : 'desc'
-  }
-  applySortAndRender()
-})
-
-sortModeBtn?.addEventListener('click', () => {
-  if (sortState.col === 'distance') {
-    sortState = { col: 'code', dir: 'desc' }
-  } else {
-    sortState = { col: 'distance', dir: 'asc' }
-    ensureDistanceKmForCurrentTableData()
   }
   applySortAndRender()
 })
