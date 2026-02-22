@@ -1093,7 +1093,7 @@ function findNeighborCountyFeatureAtLatLng(lat, lng) {
   return null
 }
 
-function zoomToActiveCounty(geojson, countyRegion = null) {
+function zoomToActiveCounty(geojson, countyRegion = null, options = {}) {
   if (!map || !geojson || !Array.isArray(geojson.features)) return false
   const targetRegion = String(countyRegion || '').toUpperCase()
   const activeFeatures = geojson.features.filter((feature) => {
@@ -1105,7 +1105,8 @@ function zoomToActiveCounty(geojson, countyRegion = null) {
   try {
     const bounds = L.geoJSON({ type: 'FeatureCollection', features: activeFeatures }).getBounds()
     if (bounds.isValid()) {
-      map.fitBounds(bounds, { padding: [22, 22], maxZoom: 11, animate: true })
+      const maxZoom = Number.isFinite(Number(options?.maxZoom)) ? Number(options.maxZoom) : 11
+      map.fitBounds(bounds, { padding: [22, 22], maxZoom, animate: true })
       return true
     }
   } catch {
@@ -4214,16 +4215,36 @@ function buildObservationPopupHtml(pt) {
       : `<div class="obs-popup-location" title="${escapeHtml(locName)}">${escapeHtml(locName)}</div>`)
     : ''
 
-  const checklistItems = (pt.subIds || []).map((sid, i) => {
-    const dt = formatObsDateTime(pt.subDates?.[i])
-    const label = `${dt} - ${String(sid)}`
-    return `<li><a href="https://ebird.org/checklist/${encodeURIComponent(sid)}" target="_blank" rel="noopener">${escapeHtml(label)}</a></li>`
+  // Location-level list: show every observation at this location in the
+  // current dataset (not grouped to latest).
+  const fallbackLocKey = `${Number(pt.lat).toFixed(4)}|${Number(pt.lng).toFixed(4)}`
+  const ptLocKey = String(pt.locKey || locId || fallbackLocKey)
+  const locObs = Array.isArray(lastMapLocationIndex?.get?.(ptLocKey)) ? lastMapLocationIndex.get(ptLocKey) : []
+  const sortedLocObs = locObs
+    .slice()
+    .sort((a, b) => {
+      const aMs = parseObsDate(a?.obsDt)?.getTime?.() ?? 0
+      const bMs = parseObsDate(b?.obsDt)?.getTime?.() ?? 0
+      if (aMs !== bMs) return bMs - aMs
+      return String(a?.species || '').localeCompare(String(b?.species || ''))
+    })
+
+  const obsItems = sortedLocObs.map((o) => {
+    const dt = formatObsDateTime(o?.obsDt)
+    const badge = renderAbaCodeBadge(o?.abaCode)
+    const sid = o?.subId ? String(o.subId) : ''
+    const label = `${dt} · ${String(o?.species || '')}`
+    if (sid) {
+      return `<li>${badge}<a href="https://ebird.org/checklist/${encodeURIComponent(sid)}" target="_blank" rel="noopener">${escapeHtml(label)}</a></li>`
+    }
+    return `<li>${badge}<span>${escapeHtml(label)}</span></li>`
   })
-  const checklistSection = checklistItems.length
-    ? `<ul class="obs-popup-checklist">${checklistItems.join('')}</ul>`
+
+  const obsSection = obsItems.length
+    ? `<ul class="obs-popup-checklist">${obsItems.join('')}</ul>`
     : ''
 
-  return `<div class="obs-popup-inner">${header}${countyStateLine}${locationLine}${checklistSection}</div>`
+  return `<div class="obs-popup-inner">${header}${countyStateLine}${locationLine}${obsSection}</div>`
 }
 
 function openObservationPopup(pt) {
@@ -4266,7 +4287,10 @@ function ensureCanvasClickHandler() {
       pt = hitTestCanvas(cp)
       if (pt) {
         if (pt.isCluster && map) {
-          const nextZoom = Math.max(map.getZoom() + 2, CLUSTER_ZOOM_THRESHOLD + 1)
+          const isCountyView = isCountyRegionCode(String(currentActiveCountyCode || '').toUpperCase())
+          const nextZoom = isCountyView
+            ? Math.max(map.getZoom() + 2, COUNTY_EXPLODE_ZOOM)
+            : Math.max(map.getZoom() + 2, CLUSTER_ZOOM_THRESHOLD + 1)
           map.setView([pt.lat, pt.lng], nextZoom, { animate: true })
           return
         }
@@ -4309,6 +4333,32 @@ function renderNotablesOnMap(observations, activeCountyCode = '', fitToObservati
   const totalPoints = Array.isArray(observations) ? observations.length : 0
   const showPermanentLabels = labelMode !== 'off' && totalPoints <= MAP_LABEL_MAX_POINTS
 
+  // Build an index of *all* observations at each location for popup display.
+  const locationIndex = new Map() // locKey -> { seen:Set, items:Array }
+  if (Array.isArray(observations)) {
+    for (const item of observations) {
+      const lat = Number(item?.lat)
+      const lng = Number(item?.lng)
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue
+      const species = String(item?.comName || 'Unknown species')
+      const locId = item?.locId ? String(item.locId) : ''
+      const locKey = locId || `${lat.toFixed(4)}|${lng.toFixed(4)}`
+      if (!locationIndex.has(locKey)) locationIndex.set(locKey, { seen: new Set(), items: [] })
+      const bucket = locationIndex.get(locKey)
+      const subId = item?.subId ? String(item.subId) : ''
+      const obsDt = item?.obsDt ? String(item.obsDt) : ''
+      const uniq = `${species}|${subId}|${obsDt}`
+      if (bucket.seen.has(uniq)) continue
+      bucket.seen.add(uniq)
+      bucket.items.push({
+        species,
+        abaCode: getAbaCodeNumber(item),
+        obsDt: obsDt || null,
+        subId: subId || null,
+      })
+    }
+  }
+
   // Deduplicate: one canvas point per species×location, but collect ALL subIds
   const seenMap = new Map()  // key → deduped entry index
   const deduped = []
@@ -4324,7 +4374,7 @@ function renderNotablesOnMap(observations, activeCountyCode = '', fitToObservati
       const subId = item?.subId ? String(item.subId) : null
       const obsDt = item?.obsDt ? String(item.obsDt) : null
       if (!seenMap.has(key)) {
-        const entry = { item, lat, lng, species, subIds: subId ? [subId] : [], subDates: obsDt ? [obsDt] : [] }
+        const entry = { item, lat, lng, species, locKey, subIds: subId ? [subId] : [], subDates: obsDt ? [obsDt] : [] }
         seenMap.set(key, deduped.length)
         deduped.push(entry)
       } else if (subId) {
@@ -4353,7 +4403,7 @@ function renderNotablesOnMap(observations, activeCountyCode = '', fitToObservati
   // Build lightweight data objects — no Leaflet marker construction
   const nextData = []
   const nextSpeciesMap = new Map()  // species → [{lat,lng}] for table row highlight
-  for (const { item, lat, lng, species, subIds, subDates } of deduped) {
+  for (const { item, lat, lng, species, locKey, subIds, subDates } of deduped) {
     const resolvedAba = getAbaCodeNumber(item)
     const abaCode = Number.isFinite(resolvedAba) ? resolvedAba : null
     const colors = ABA_COLORS[abaCode] || ABA_DEFAULT_COLOR
@@ -4361,7 +4411,7 @@ function renderNotablesOnMap(observations, activeCountyCode = '', fitToObservati
     const itemCounty = String(item?.subnational2Code || '').toUpperCase()
     const isInActiveCounty = !activeCountyCode || itemCounty === activeCountyCode
     const label = (isInActiveCounty && showPermanentLabels) ? (labelMode === 'abbr' ? getSpeciesMapLabel(species) : species) : null
-    const pt = { lat, lng, fill: colors.fill, border: colors.border, species, safeSpecies, abaCode, subIds, subDates, item, label, hidden: false }
+    const pt = { lat, lng, fill: colors.fill, border: colors.border, species, safeSpecies, abaCode, subIds, subDates, item, label, hidden: false, locKey }
     nextData.push(pt)
     if (!nextSpeciesMap.has(species)) nextSpeciesMap.set(species, [])
     nextSpeciesMap.get(species).push(pt)
@@ -4372,6 +4422,11 @@ function renderNotablesOnMap(observations, activeCountyCode = '', fitToObservati
   // Swap in new data and redraw the single canvas layer
   fastCanvasBaseData = nextData
   fastCanvasData = nextData
+  // Publish location index for popup rendering.
+  lastMapLocationIndex = new Map()
+  locationIndex.forEach((bucket, key) => {
+    lastMapLocationIndex.set(key, Array.isArray(bucket?.items) ? bucket.items : [])
+  })
   speciesMarkers = nextSpeciesMap   // reuse same variable — callers key on species name
   hiddenSpecies = new Set()
   const toggleAllEl = document.querySelector('#toggleAllVis')
@@ -4398,7 +4453,9 @@ function renderNotablesOnMap(observations, activeCountyCode = '', fitToObservati
       [Math.max(...lats), Math.max(...lngs)]
     )
     if (bounds.isValid()) {
-      map.fitBounds(bounds, { padding: [24, 24], maxZoom: MAP_POINTS_FIT_MAX_ZOOM, animate: false })
+      const effectiveMaxZoom = Number.isFinite(Number(mapFitMaxZoomOnce)) ? Number(mapFitMaxZoomOnce) : MAP_POINTS_FIT_MAX_ZOOM
+      mapFitMaxZoomOnce = null
+      map.fitBounds(bounds, { padding: [24, 24], maxZoom: effectiveMaxZoom, animate: false })
     }
   }
 }
@@ -4883,6 +4940,10 @@ async function loadNationalNotables(regionCode = US_REGION_CODE, abaMinFloor = 3
 }
 
 async function loadNeighborCounty(lat, lng, countyRegion, countyName) {
+  const explodeNow = Boolean(explodeClustersOnNextCountySwitch)
+  explodeClustersOnNextCountySwitch = false
+  if (explodeNow) mapFitMaxZoomOnce = COUNTY_EXPLODE_ZOOM
+
   const normalizedCountyRegion = countyRegion ? String(countyRegion).toUpperCase() : null
   // Avoid Number(null) => 0 (which would incorrectly send us to 0,0).
   let targetLat = (lat === null || lat === undefined || lat === '') ? NaN : Number(lat)
@@ -4937,9 +4998,9 @@ async function loadNeighborCounty(lat, lng, countyRegion, countyName) {
     }
 
     if (!zoomGeojson && latestCountyContextGeojson) zoomGeojson = latestCountyContextGeojson
-    const zoomed = zoomToActiveCounty(zoomGeojson, resolvedCountyRegion)
+    const zoomed = zoomToActiveCounty(zoomGeojson, resolvedCountyRegion, { maxZoom: explodeNow ? COUNTY_EXPLODE_ZOOM : 11 })
     if (!zoomed && map && Number.isFinite(targetLat) && Number.isFinite(targetLng)) {
-      map.setView([targetLat, targetLng], Math.max(map.getZoom(), 9), { animate: true })
+      map.setView([targetLat, targetLng], Math.max(map.getZoom(), explodeNow ? COUNTY_EXPLODE_ZOOM : 9), { animate: true })
     }
 
     const label = countyContext?.countyLabel || countyName || ''
