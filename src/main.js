@@ -147,7 +147,7 @@ app.innerHTML = `
     </main>
 
     <div class="bottom-aba-bar" aria-label="ABA summary">
-      <div class="aba-filter-label">Filter ABA code:</div>
+      <div class="aba-filter-label">ABA code:</div>
       <div id="topAbaPills" class="top-aba-pills" aria-label="ABA counts"></div>
       <button id="sortModeBtn" class="top-menu-select top-menu-btn sort-toggle-btn" type="button" aria-label="Toggle sort (ABA/distance)" aria-pressed="false" title="Sort: ABA (tap for distance)"><span class="sort-toggle-icon" aria-hidden="true">⌖</span><span class="sort-toggle-label">ABA</span></button>
     </div>
@@ -732,6 +732,7 @@ function applyActiveFiltersAndRender(options = {}) {
     )
   }
   syncFilterPillUi()
+  updateCountyDots()
   return filtered
 }
 
@@ -1119,6 +1120,13 @@ function updateCountyDots() {
   if (!map || !countyPickerOptions.length) return
   const showCountyNames = map.getZoom() > 10
 
+  const selected = selectedAbaCodes instanceof Set ? selectedAbaCodes : new Set()
+  const hasAbaSelection = selected.size > 0
+  const selectedCodes = hasAbaSelection
+    ? Array.from(selected).map((v) => Math.round(Number(v))).filter((c) => Number.isFinite(c) && c >= 1 && c <= 6)
+    : []
+  const highestSelectedCode = selectedCodes.length ? Math.max(...selectedCodes) : null
+
   if (!countyDotLayerRef) {
     countyDotLayerRef = L.layerGroup({ pane: 'countyDotPane' }).addTo(map)
   }
@@ -1129,11 +1137,20 @@ function updateCountyDots() {
     if (!opt.countyRegion || !Number.isFinite(opt.lat) || !Number.isFinite(opt.lng)) continue
 
     const summary = getCountySummary(opt.countyRegion, false)
-    const rarityCount = summary?.rarityCount || 0
+    const rarityCount = (() => {
+      if (!summary) return 0
+      if (!hasAbaSelection || selectedCodes.length === 0) return summary?.rarityCount || 0
+      return selectedCodes.reduce((sum, code) => sum + (summary.abaCounts.get(code) || 0), 0)
+    })()
 
-    // Pick color from highest ABA code present
+    // When ABA selection is active, only show counties that have matches,
+    // and color the dot by the selected code (or highest selected if multi-select).
     let dotColor = '#64748b'
-    if (summary) {
+    if (hasAbaSelection && selectedCodes.length > 0) {
+      if (rarityCount <= 0) continue
+      dotColor = DOT_ABA_COLORS[highestSelectedCode] || '#64748b'
+    } else if (summary) {
+      // Pick color from highest ABA code present
       for (let code = 6; code >= 1; code--) {
         if ((summary.abaCounts.get(code) || 0) > 0) { dotColor = DOT_ABA_COLORS[code]; break }
       }
