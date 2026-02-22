@@ -722,13 +722,18 @@ function getAbaCodeNumber(item) {
   const code = Number(rawCode)
   if (Number.isFinite(code)) {
     const rounded = Math.round(code)
-    if (rounded >= 1 && rounded <= 6) return rounded
+    if (rounded >= 1 && rounded <= 5) return rounded
+    if (rounded === 6) return 5
   }
   const overrideCode = getAbaCodeOverride(
     item?.comName || item?.species || '',
     item?.speciesCode || item?.species_code || item?.speciesCode4 || ''
   )
-  return Number.isFinite(Number(overrideCode)) ? Math.round(Number(overrideCode)) : null
+  if (!Number.isFinite(Number(overrideCode))) return null
+  const rounded = Math.round(Number(overrideCode))
+  if (rounded >= 1 && rounded <= 5) return rounded
+  if (rounded === 6) return 5
+  return null
 }
 
 function matchesAbaSelection(item, abaMinValue, selectedCodes) {
@@ -1164,9 +1169,9 @@ function summarizeCountyObservations(observations) {
     if (abaCode > existing.abaCode) existing.abaCode = abaCode
   })
 
-  const abaCounts = new Map([[0, 0], [1, 0], [2, 0], [3, 0], [4, 0], [5, 0], [6, 0]])
+  const abaCounts = new Map([[0, 0], [1, 0], [2, 0], [3, 0], [4, 0], [5, 0]])
   grouped.forEach((entry) => {
-    const code = Number.isFinite(entry.abaCode) && entry.abaCode >= 1 && entry.abaCode <= 6 ? entry.abaCode : 0
+    const code = Number.isFinite(entry.abaCode) && entry.abaCode >= 1 && entry.abaCode <= 5 ? entry.abaCode : 0
     abaCounts.set(code, (abaCounts.get(code) || 0) + 1)
   })
 
@@ -1179,7 +1184,7 @@ function summarizeCountyObservations(observations) {
 function formatCountySummary(summary) {
   if (!summary) return 'Rarities: — · ABA: —'
   const parts = []
-  for (let code = 1; code <= 6; code += 1) {
+  for (let code = 1; code <= 5; code += 1) {
     const count = summary.abaCounts.get(code) || 0
     if (count > 0) parts.push(`${code}:${count}`)
   }
@@ -1196,7 +1201,7 @@ function formatCountySummaryPills(summary, options = {}) {
   if (includeTotal) {
     pills.push(`<span class="county-pill county-pill-rarity" title="Total rarities">${summary.rarityCount}</span>`)
   }
-  for (let code = 1; code <= 6; code += 1) {
+  for (let code = 1; code <= 5; code += 1) {
     const count = summary.abaCounts.get(code) || 0
     if (count > 0) {
       pills.push(`<span class="county-pill county-aba-pill aba-code-${code}" title="ABA ${code}: ${count}">${count}</span>`)
@@ -1271,7 +1276,7 @@ function renderCountyPickerOptions() {
 
 // ABA dot colors matching canvas overlay palette
 const DOT_ABA_COLORS = {
-  1: '#067bc2', 2: '#84bcda', 3: '#ecc30b', 4: '#f37748', 5: '#ED1313', 6: '#ed13d4',
+  1: '#067bc2', 2: '#84bcda', 3: '#ecc30b', 4: '#f37748', 5: '#ED1313',
 }
 
 function updateCountyDots() {
@@ -3843,7 +3848,6 @@ const ABA_COLORS = {
   3: { fill: '#ecc30b', border: '#ffffff' },
   4: { fill: '#f37748', border: '#ffffff' },
   5: { fill: '#ED1313', border: '#ffffff' },
-  6: { fill: '#ed13d4', border: '#ffffff' },
 }
 const ABA_DEFAULT_COLOR = { fill: '#4b5563', border: '#ffffff' }
 const MARKER_RADIUS = 9        // px, logical
@@ -5154,6 +5158,27 @@ speciesPickerList?.addEventListener('click', (event) => {
   closeSpeciesPicker()
   selectedSpecies = species || null
   applyActiveFiltersAndRender({ allowAutoRecovery: false })
+
+  // Take the user directly to the selected species on the map.
+  if (selectedSpecies && map) {
+    const pts = speciesMarkers.get(selectedSpecies)
+    if (pts && pts.length > 0) {
+      map.invalidateSize()
+      const targetPt = pickBestSpeciesPoint(pts)
+      if (pts.length === 1 && targetPt) {
+        map.setView([targetPt.lat, targetPt.lng], Math.max(map.getZoom(), 13), { animate: true })
+        openObservationPopup(targetPt)
+      } else {
+        const lats = pts.map((p) => p.lat)
+        const lngs = pts.map((p) => p.lng)
+        map.fitBounds(
+          L.latLngBounds([Math.min(...lats), Math.min(...lngs)], [Math.max(...lats), Math.max(...lngs)]),
+          { padding: [40, 40], maxZoom: 13, animate: true }
+        )
+        if (targetPt) window.setTimeout(() => openObservationPopup(targetPt), 120)
+      }
+    }
+  }
 })
 
 statePickerList?.addEventListener('click', async (event) => {
@@ -5171,10 +5196,13 @@ function activateAbaPill(pill) {
   const parsedCode = Number(pill.dataset.code)
   if (!Number.isFinite(parsedCode)) return
   const code = Math.round(parsedCode)
-  if (code < 1 || code > 6) return
+  if (code < 1 || code > 5) return
   if (!(selectedAbaCodes instanceof Set)) selectedAbaCodes = new Set()
-  const isOnlyThis = selectedAbaCodes.size === 1 && selectedAbaCodes.has(code)
-  selectedAbaCodes = isOnlyThis ? new Set() : new Set([code])
+
+  // Multi-select toggle: click toggles individual codes on/off.
+  if (selectedAbaCodes.has(code)) selectedAbaCodes.delete(code)
+  else selectedAbaCodes.add(code)
+
   applyActiveFiltersAndRender({ allowAutoRecovery: false })
 }
 
@@ -5211,8 +5239,10 @@ abaCodePickerList?.addEventListener('click', (event) => {
     const parsedCode = Number(option.value)
     if (Number.isFinite(parsedCode)) {
       const code = Math.round(parsedCode)
-      const isOnlyThis = selectedAbaCodes.size === 1 && selectedAbaCodes.has(code)
-      selectedAbaCodes = isOnlyThis ? new Set() : new Set([code])
+      if (code >= 1 && code <= 5) {
+        if (selectedAbaCodes.has(code)) selectedAbaCodes.delete(code)
+        else selectedAbaCodes.add(code)
+      }
     }
   }
   applyActiveFiltersAndRender({ allowAutoRecovery: false })

@@ -43,7 +43,8 @@ body {
 .app-header {
   background: var(--brand);
   color: #f8fafc;
-  padding: 0.55rem 0.7rem 0.5rem;
+  height: var(--bottom-aba-height);
+  padding: 0 0.7rem;
   border-bottom: 1px solid rgba(255, 255, 255, 0.18);
   position: relative;
   display: flex;
@@ -912,12 +913,13 @@ body.is-resizing {
 
 .panel {
   display: none;
+  flex-direction: column;
   gap: 0.75rem;
+  min-height: 0;
 }
 
 .panel.active {
-  display: grid;
-  align-content: start;
+  display: flex;
   min-height: 0;
 }
 
@@ -950,7 +952,8 @@ body.is-resizing {
 
 .table-wrap {
   margin: 0;
-  max-height: calc(60dvh - 6rem);
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: auto;
   border: 1px solid var(--border);
   border-radius: 0;
@@ -965,6 +968,10 @@ body.is-resizing {
   border-radius: 0;
   border-top: none;
   box-shadow: 0 -3px 0 0 var(--card);
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .table-top-menu {
