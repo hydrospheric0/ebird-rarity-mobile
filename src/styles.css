@@ -7,6 +7,7 @@
   --brand: #0c1b50;
   --accent: #009688;
   --border: rgba(15, 23, 42, 0.12);
+  --map-strip-height: 40dvh;
   --bottom-select-height: 2.85rem;
   --bottom-aba-height: 2.85rem;
   --bottom-menu-height: calc(var(--bottom-select-height) + var(--bottom-aba-height));
@@ -36,7 +37,7 @@ body {
 .app-shell {
   min-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
   display: grid;
-  grid-template-rows: auto auto 1fr;
+  grid-template-rows: auto auto auto 1fr;
 }
 
 .app-header {
@@ -132,7 +133,8 @@ body {
 
 #headerDaysBackSelect {
   width: 3.3rem;
-  text-align: right;
+  text-align: center;
+  text-align-last: center;
   background: #7c3aed;
   color: #ffffff;
   border-color: rgba(255, 255, 255, 0.28);
@@ -297,13 +299,27 @@ body {
 
 .map-strip {
   width: 100%;
-  height: 40dvh;
+  height: var(--map-strip-height, 40dvh);
   position: relative;
   z-index: 1;
-  border-bottom-left-radius: 0.6rem;
-  border-bottom-right-radius: 0.6rem;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
   overflow: hidden;
   box-shadow: 0 4px 12px rgba(0,0,0,0.18);
+}
+
+.map-table-splitter {
+  height: 10px;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  cursor: row-resize;
+  touch-action: none;
+}
+
+body.is-resizing {
+  user-select: none;
+  cursor: row-resize;
 }
 
 .map-top-right {
@@ -381,6 +397,7 @@ body {
 
 /* Full-height pickers (state + county) */
 #countyPicker:not([hidden]),
+#speciesPicker:not([hidden]),
 #statePicker:not([hidden]) {
   position: fixed;
   left: 0;
@@ -412,6 +429,7 @@ body {
 }
 
 #countyPicker .county-picker-list,
+#speciesPicker .county-picker-list,
 #statePicker .county-picker-list {
   max-height: none;
   flex: 1 1 auto;
@@ -747,6 +765,8 @@ body {
 .bottom-reload-btn svg {
   width: 1.2rem;
   height: 1.2rem;
+  display: block;
+  overflow: visible;
 }
 
 .menu-btn.active {
@@ -1175,11 +1195,23 @@ body {
 }
 
 .notable-table .col-code {
-  width: 1.6rem;
+  width: 2.25rem;
   text-align: center;
   white-space: nowrap;
   color: var(--muted);
-  font-weight: 800;
+  font-weight: 400;
+}
+
+.code-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+.notable-table .col-code .aba-code-badge,
+.notable-table .col-code .yolo-code-badge {
+  font-weight: 500;
 }
 
 .notable-table .col-date {
@@ -1220,7 +1252,7 @@ body {
   padding: 0.08rem 0.32rem;
   border-radius: 999px;
   font-size: 0.7rem;
-  font-weight: 800;
+  font-weight: 500;
   line-height: 1;
   color: #ffffff;
   border: 1px solid rgba(15, 23, 42, 0.15);
@@ -1411,6 +1443,10 @@ button.primary {
 }
 
 .app-shell.map-fullscreen .app-main {
+  display: none;
+}
+
+.app-shell.map-fullscreen .map-table-splitter {
   display: none;
 }
 

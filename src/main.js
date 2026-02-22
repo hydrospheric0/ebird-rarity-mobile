@@ -100,6 +100,8 @@ app.innerHTML = `
       </div>
     </section>
 
+    <div id="mapTableSplitter" class="map-table-splitter" role="separator" aria-label="Resize map and list" aria-orientation="horizontal"></div>
+
     <main class="app-main">
       <section id="panelMap" class="panel active">
         <section class="card table-card">
@@ -170,7 +172,7 @@ app.innerHTML = `
         <option value="">Loading…</option>
       </select>
 
-      <button id="headerSpeciesBtn" class="top-menu-select top-menu-btn bottom-select" type="button" aria-label="Species" title="Choose species" hidden>All</button>
+      <button id="headerSpeciesBtn" class="top-menu-select top-menu-btn bottom-select" type="button" aria-label="Species" title="Choose species" hidden>Species</button>
 
       <select id="headerDaysBackSelect" class="top-menu-select bottom-select" aria-label="Days back">
         <option value="1">1d</option>
@@ -285,6 +287,7 @@ const mapFullscreenToggleBtn = document.querySelector('#mapFullscreenToggle')
 const mapBasemapToggleBtn = document.querySelector('#mapBasemapToggle')
 const mapLocateBtn = document.querySelector('#mapLocateBtn')
 const mapLabelToggleBtn = document.querySelector('#mapLabelToggle')
+const mapTableSplitter = document.querySelector('#mapTableSplitter')
 const appShell = document.querySelector('#appShell')
 const apiKeyGate = document.querySelector('#apiKeyGate')
 const apiKeyInput = document.querySelector('#apiKeyInput')
@@ -319,12 +322,72 @@ function syncPickerInsets() {
   document.documentElement.style.setProperty('--picker-top', `${topPx}px`)
 }
 
+function bindMapTableSplitter() {
+  if (!mapTableSplitter) return
+  const mapStripEl = document.querySelector('.map-strip')
+  const headerEl = document.querySelector('.app-header')
+  if (!mapStripEl || !headerEl) return
+
+  let dragState = null
+  let rafId = null
+
+  const endDrag = () => {
+    dragState = null
+    document.body.classList.remove('is-resizing')
+    if (rafId) {
+      window.cancelAnimationFrame(rafId)
+      rafId = null
+    }
+    if (map) {
+      try { map.invalidateSize() } catch (_) {}
+    }
+  }
+
+  mapTableSplitter.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return
+    e.preventDefault()
+    mapTableSplitter.setPointerCapture?.(e.pointerId)
+    document.body.classList.add('is-resizing')
+    dragState = {
+      startY: e.clientY,
+      startHeight: mapStripEl.getBoundingClientRect().height,
+    }
+  })
+
+  mapTableSplitter.addEventListener('pointermove', (e) => {
+    if (!dragState) return
+    e.preventDefault()
+    const dy = e.clientY - dragState.startY
+    let nextHeight = dragState.startHeight + dy
+
+    const headerH = headerEl.getBoundingClientRect().height
+    const splitterH = mapTableSplitter.getBoundingClientRect().height || 10
+    const minMapH = 160
+    const minMainH = 220
+    const maxMapH = Math.max(minMapH, window.innerHeight - headerH - splitterH - minMainH)
+    nextHeight = Math.max(minMapH, Math.min(maxMapH, nextHeight))
+
+    document.documentElement.style.setProperty('--map-strip-height', `${Math.round(nextHeight)}px`)
+
+    if (map && !rafId) {
+      rafId = window.requestAnimationFrame(() => {
+        rafId = null
+        try { map.invalidateSize() } catch (_) {}
+      })
+    }
+  })
+
+  mapTableSplitter.addEventListener('pointerup', endDrag)
+  mapTableSplitter.addEventListener('pointercancel', endDrag)
+}
+
 window.addEventListener('resize', () => {
   syncPickerInsets()
 })
 
 // Initial layout sync (after first paint)
 window.setTimeout(() => syncPickerInsets(), 0)
+window.setTimeout(() => bindMapTableSplitter(), 0)
 const API_TIMEOUT_MS = 8000
 const COUNTY_NOTABLES_TIMEOUT_MS = 5500
 const MAP_LABEL_MAX_POINTS = 80
@@ -802,7 +865,7 @@ function renderSpeciesPickerOptions() {
 
 function updateSpeciesButtonLabel() {
   if (!headerSpeciesBtn) return
-  headerSpeciesBtn.textContent = selectedSpecies ? String(selectedSpecies) : 'All'
+  headerSpeciesBtn.textContent = selectedSpecies ? String(selectedSpecies) : 'Species'
 }
 
 function syncSpeciesModeUi() {
@@ -1225,11 +1288,14 @@ function updateCountyDots() {
   const countsByCountyRegion = stateFiltered ? new Map() : null
   const maxAbaByCountyRegion = stateFiltered ? new Map() : null
   if (stateFiltered) {
-    for (const item of stateFiltered) {
-      const countyRegion = String(item?.subnational2Code || '').toUpperCase()
+    // In state mode, county dots should reflect *table record counts* (grouped rows),
+    // not raw observations (which can be many checklists per species).
+    const grouped = buildGroupedRowsFromObservations(stateFiltered)
+    for (const row of grouped.values()) {
+      const countyRegion = String(row?.countyRegion || '').toUpperCase()
       if (!isCountyRegionCode(countyRegion)) continue
       countsByCountyRegion.set(countyRegion, (countsByCountyRegion.get(countyRegion) || 0) + 1)
-      const code = getAbaCodeNumber(item)
+      const code = Number(row?.abaCode)
       if (Number.isFinite(code)) {
         const existing = maxAbaByCountyRegion.get(countyRegion) || 0
         if (code > existing) maxAbaByCountyRegion.set(countyRegion, code)
@@ -3598,14 +3664,11 @@ function applySortAndRender() {
   const { col, dir } = sortState
 
   const regionCode = document.querySelector('#notableMeta')?.dataset?.regionCode || ''
-  const isYolo = regionCode === 'US-CA-113'
+  const normalizedRegion = String(regionCode || '').toUpperCase()
+  const isCountyView = isCountyRegionCode(normalizedRegion)
+  const isYoloCountyView = isCountyView && normalizedRegion === YOLO_COUNTY_REGION
 
   const getPreferredCode = (row) => {
-    if (isYolo) {
-      const yoloInfo = getYoloSpeciesInfo(row?.species)
-      const yoloCode = Number(yoloInfo?.yoloCode)
-      if (Number.isFinite(yoloCode)) return Math.round(yoloCode)
-    }
     const aba = Number(row?.abaCode)
     return Number.isFinite(aba) ? Math.round(aba) : -1
   }
@@ -3686,8 +3749,8 @@ function applySortAndRender() {
     const lastBubble = renderDateBubble(formatShortDate(item.last), getDateBubbleClass('last', item.first, item.last))
     const firstBubble = renderDateBubble(formatShortDate(item.first), getDateBubbleClass('first', item.first, item.last))
     const abaBadge = renderAbaCodeBadge(item.abaCode)
-    const yoloBadge = isYolo ? renderYoloCodeBadge(item.species, item.abaCode) : ''
-    const statusBullets = isYolo ? renderSpeciesStatusBullets(item.species) : ''
+    const yoloBadge = isYoloCountyView ? renderYoloCodeBadge(item.species, item.abaCode) : ''
+    const statusBullets = isYoloCountyView ? renderSpeciesStatusBullets(item.species) : ''
     const isConfirmed = Boolean(item.confirmedAny)
     const countPill = `<span class="count-pill ${isConfirmed ? 'count-pill-confirmed' : 'count-pill-pending'}" title="${isConfirmed ? 'Confirmed' : 'Pending'}">${item.count}</span>`
     const isChecked = !hiddenSpecies.has(item.species)
@@ -3698,14 +3761,12 @@ function applySortAndRender() {
     const safeSpecies = escapeHtml(item.species)
     const safeCountyFull = escapeHtml(String(item.county || ''))
     const safeCountyShort = escapeHtml(shortCountyName(item.county))
-    const preferredCode = getPreferredCode(item)
-    const codeText = preferredCode >= 0 ? String(preferredCode) : '—'
     row.dataset.species = item.species
     row.dataset.county = String(item.county || '')
     row.dataset.countyRegion = String(item.countyRegion || '').toUpperCase()
     row.innerHTML = `
-      <td class="col-code">${escapeHtml(codeText)}</td>
-      <td><div class="species-cell">${abaBadge}${yoloBadge}${statusBullets}<button type="button" class="species-btn" data-species="${safeSpecies}">${safeSpecies}</button></div></td>
+      <td class="col-code"><div class="code-cell">${abaBadge}${yoloBadge}</div></td>
+      <td><div class="species-cell">${statusBullets}<button type="button" class="species-btn" data-species="${safeSpecies}">${safeSpecies}</button></div></td>
       <td class="col-county"><span class="county-cell" title="${safeCountyFull}">${safeCountyShort}</span></td>
       <td class="col-date col-last">${lastBubble}</td>
       <td class="col-date col-first">${firstBubble}</td>
@@ -4111,7 +4172,9 @@ function renderNotablesOnMap(observations, activeCountyCode = '', fitToObservati
       const lng = Number(item?.lng)
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue
       const species = String(item?.comName || 'Unknown species')
-      const key = `${species}|${lat.toFixed(4)}|${lng.toFixed(4)}`
+      const locId = item?.locId ? String(item.locId) : ''
+      const locKey = locId || `${lat.toFixed(4)}|${lng.toFixed(4)}`
+      const key = `${species}|${locKey}`
       const subId = item?.subId ? String(item.subId) : null
       const obsDt = item?.obsDt ? String(item.obsDt) : null
       if (!seenMap.has(key)) {
