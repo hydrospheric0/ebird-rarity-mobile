@@ -1505,6 +1505,14 @@ button.primary {
   border-bottom: 1px solid #e2e8f0;
 }
 
+.obs-popup-code {
+  font-weight: 800;
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+  color: #0f172a;
+  white-space: nowrap;
+}
+
 .obs-popup-species {
   flex: 1;
   min-width: 0;
@@ -1512,6 +1520,20 @@ button.primary {
   font-size: 0.78rem;
   color: #0f172a;
   line-height: 1.2;
+}
+
+.obs-popup-species-small {
+  font-weight: 700;
+  font-size: 0.72rem;
+}
+
+.obs-popup-meta {
+  font-size: 0.72rem;
+  line-height: 1.25;
+  color: #334155;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .obs-popup-county {
@@ -1551,6 +1573,20 @@ a.obs-popup-species {
   list-style: disc;
   font-size: 0.72rem;
   line-height: 1.45;
+}
+
+.obs-popup-obs-prefix {
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.obs-popup-section-title {
+  margin-top: 0.1rem;
+  padding-top: 0.1rem;
+  border-top: 1px solid #e2e8f0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #0f172a;
 }
 
 .obs-popup-checklist a {

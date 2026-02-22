@@ -467,17 +467,23 @@ let tapDebugEvents = []
 let lastMapRenderSignature = ''
 let latestMapRenderId = 0
 let lastFilteredObservations = []
+let lastFilteredObservationsNoSpecies = []
 let lastFilteredRegion = null
 let isSpeciesMode = false
 let speciesPickerOptions = []
 let explodeClustersOnNextCountySwitch = false
 let mapFitMaxZoomOnce = null
 let lastMapLocationIndex = new Map() // locKey -> [{ species, abaCode, obsDt, subId }]
+let lastPopupLocationIndexAllSpecies = new Map() // locKey -> [{ species, abaCode, obsDt, subId }], ignores selectedSpecies
 const countySummaryByRegion = new Map()
 const stateSummaryByRegion = new Map()
 const stateCountyOptionsCache = new Map()
 const lastGoodObservationsByRegion = new Map()
 let lastGoodObservationSnapshot = null
+
+const DEFAULT_STATE_PREFETCH_DAYS_BACK = 14
+let statePrefetchDaysBack = DEFAULT_STATE_PREFETCH_DAYS_BACK
+const statePrefetchInFlight = new Set() // stateRegion -> true
 
 // ---------------------------------------------------------------------------
 // Lightweight render-pipeline profiling
@@ -485,6 +491,12 @@ let lastGoodObservationSnapshot = null
 const PERF_STAGES = ['location', 'county', 'fetch', 'table', 'map']
 const _perfStart = {}
 const _perfResult = {}
+const apiSessionStats = {
+  calls: 0,
+  totalMs: 0,
+  last: '',
+}
+let lastStatePrefetchStats = null // { state, daysBack, obsCount, ms }
 
 function perfStart(stage) {
   _perfStart[stage] = performance.now()
@@ -779,6 +791,12 @@ function applyActiveFiltersAndRender(options = {}) {
     if (selectedReviewFilter === 'pending') return !isConfirmedObservation(item)
     return true
   })
+
+  // Popups should be able to show other notable species at the same location
+  // even when the map is filtered down to a single species.
+  const filteredNoSpecies = filteredByStatus.filter((item) => matchesAbaSelection(item, abaMin, selectedAbaCodes))
+  lastFilteredObservationsNoSpecies = filteredNoSpecies
+  lastPopupLocationIndexAllSpecies = buildLocationIndexForPopup(filteredNoSpecies)
 
   updateSpeciesPickerOptions(filteredByStatus)
   const filteredBySpecies = selectedSpecies
@@ -1450,7 +1468,7 @@ async function prefetchCountySummariesForPicker(options) {
 
         const result = await fetchCountyNotablesWithRetry(lastUserLat, lastUserLng, effectiveDaysBack, region, 1)
         if (!Array.isArray(result?.observations) || result.observations.length === 0) continue
-        saveNotablesCache(region, result)
+        saveNotablesCache(region, result, { daysBack: effectiveDaysBack })
         const scoped = filterObservationsToCountyRegion(result.observations, region)
         countySummaryByRegion.set(region, summarizeCountyObservations(scoped))
         scheduleCountyPickerRender()
@@ -2080,6 +2098,15 @@ async function ensureSearchCountyOptionsForState(stateRegion) {
     return
   }
 
+  const stateCached = loadNotablesCache(normalizedState)
+  if (Array.isArray(stateCached?.observations) && stateCached.observations.length > 0) {
+    if (requestId !== latestSearchCountyOptionsRequestId) return
+    const entries = buildStateCountyEntries(stateCached.observations, normalizedState)
+    stateCountyOptionsCache.set(normalizedState, entries)
+    applySearchCountyEntries(entries)
+    return
+  }
+
   setSearchCountyLoading('Loading counties…')
   try {
     const effectiveDaysBack = Math.max(1, Math.min(14, Number(filterDaysBack) || 7))
@@ -2642,9 +2669,21 @@ function buildWorkerAuthHeaders(urlString) {
 async function fetchWithTimeout(url, timeoutMs = API_TIMEOUT_MS) {
   const controller = new AbortController()
   const timer = window.setTimeout(() => controller.abort(), timeoutMs)
+  const startMs = performance.now()
   try {
     const headers = buildWorkerAuthHeaders(url)
     const response = await fetch(url, { cache: 'no-store', signal: controller.signal, headers })
+    try {
+      const isApi = String(url).includes('/api/')
+      if (isApi) {
+        const elapsed = Math.round(performance.now() - startMs)
+        apiSessionStats.calls += 1
+        apiSessionStats.totalMs += elapsed
+        apiSessionStats.last = `${response.status} ${String(url).split('?')[0]} ${elapsed}ms`
+      }
+    } catch {
+      // ignore metrics errors
+    }
     if (response.status === 401) {
       showApiKeyGate('API key required. Get a key from https://ebird.org/api/keygen and paste it here.')
     }
@@ -2749,7 +2788,7 @@ function buildNotablesCacheKey(countyRegion) {
   return countyRegion ? `notables:${countyRegion}` : null
 }
 
-function saveNotablesCache(countyRegion, result) {
+function saveNotablesCache(countyRegion, result, meta = {}) {
   const cacheKey = buildNotablesCacheKey(countyRegion)
   if (!cacheKey) return
   if (!Array.isArray(result?.observations) || result.observations.length === 0) return
@@ -2757,6 +2796,7 @@ function saveNotablesCache(countyRegion, result) {
   try {
     localStorage.setItem(cacheKey, JSON.stringify({
       timestamp: Date.now(),
+      meta,
       result,
     }))
   } catch {
@@ -2775,9 +2815,55 @@ function loadNotablesCache(countyRegion, maxAgeMs = 6 * 60 * 60 * 1000) {
     if (!parsed || typeof parsed !== 'object') return null
     const age = Date.now() - Number(parsed.timestamp || 0)
     if (!Number.isFinite(age) || age < 0 || age > maxAgeMs) return null
-    return parsed.result || null
+    const result = parsed.result || null
+    if (result && typeof result === 'object' && parsed.meta && typeof parsed.meta === 'object') {
+      try {
+        result.__meta = parsed.meta
+      } catch {
+        // ignore
+      }
+    }
+    return result
   } catch {
     return null
+  }
+}
+
+function getCacheDaysBack(cached) {
+  const raw = Number(cached?.__meta?.daysBack)
+  if (!Number.isFinite(raw)) return null
+  const days = Math.round(raw)
+  if (days < 1 || days > 14) return null
+  return days
+}
+
+async function prefetchStateRarities(stateRegion, daysBack = statePrefetchDaysBack) {
+  const normalizedState = String(stateRegion || '').toUpperCase()
+  if (!/^US-[A-Z]{2}$/.test(normalizedState)) return
+  const requestedDays = Math.max(1, Math.min(14, Number(daysBack) || DEFAULT_STATE_PREFETCH_DAYS_BACK))
+
+  if (statePrefetchInFlight.has(normalizedState)) return
+  const cached = loadNotablesCache(normalizedState)
+  const cachedDays = getCacheDaysBack(cached)
+  if (Array.isArray(cached?.observations) && cached.observations.length > 0 && Number.isFinite(cachedDays) && cachedDays >= requestedDays) {
+    return
+  }
+
+  statePrefetchInFlight.add(normalizedState)
+  try {
+    const startMs = performance.now()
+    const observations = await fetchRegionRarities(normalizedState, requestedDays, 45000)
+    const elapsed = Math.round(performance.now() - startMs)
+    if (!Array.isArray(observations) || observations.length === 0) return
+    saveNotablesCache(normalizedState, { observations }, { daysBack: requestedDays })
+    lastStatePrefetchStats = { state: normalizedState, daysBack: requestedDays, obsCount: observations.length, ms: elapsed }
+    // Precompute county list for the search menu / picker.
+    const entries = buildStateCountyEntries(observations, normalizedState)
+    if (entries.length > 0) stateCountyOptionsCache.set(normalizedState, entries)
+  } catch (e) {
+    console.warn('[prefetch] state rarities failed:', normalizedState, e)
+  } finally {
+    statePrefetchInFlight.delete(normalizedState)
   }
 }
 
@@ -3275,6 +3361,53 @@ function formatObsDateTime(obsDt) {
   const ampm = h >= 12 ? 'pm' : 'am'
   const h12 = h % 12 || 12
   return `${mo}/${day} - ${h12}:${m}${ampm}`
+}
+
+function formatObsDayMonthTime24(obsDt) {
+  const d = parseObsDate(obsDt)
+  if (!d) return obsDt || 'Unknown date'
+  const day = d.getDate()
+  const mo = d.getMonth() + 1
+  const h = String(d.getHours()).padStart(2, '0')
+  const m = String(d.getMinutes()).padStart(2, '0')
+  return `${day}/${mo} - ${h}:${m}`
+}
+
+function getLocationKeyForItem(item) {
+  const lat = Number(item?.lat)
+  const lng = Number(item?.lng)
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return ''
+  const locId = item?.locId ? String(item.locId) : ''
+  return locId || `${lat.toFixed(4)}|${lng.toFixed(4)}`
+}
+
+function buildLocationIndexForPopup(observations) {
+  const idx = new Map()
+  const source = Array.isArray(observations) ? observations : []
+  for (const item of source) {
+    const key = getLocationKeyForItem(item)
+    if (!key) continue
+    if (!idx.has(key)) idx.set(key, { seen: new Set(), items: [] })
+    const bucket = idx.get(key)
+
+    const species = String(item?.comName || 'Unknown species')
+    const code = getAbaCodeNumber(item)
+    const obsDtRaw = item?.obsDt ? String(item.obsDt) : ''
+    const subId = item?.subId ? String(item.subId) : ''
+    const uniq = `${species}|${subId}|${obsDtRaw}`
+    if (bucket.seen.has(uniq)) continue
+    bucket.seen.add(uniq)
+    bucket.items.push({
+      species,
+      abaCode: code,
+      obsDt: obsDtRaw || null,
+      subId: subId || null,
+    })
+  }
+
+  const out = new Map()
+  idx.forEach((bucket, key) => out.set(key, Array.isArray(bucket?.items) ? bucket.items : []))
+  return out
 }
 
 function dayOffsetFromToday(date) {
@@ -3914,11 +4047,11 @@ let fastCanvasPopupKey = null  // key for last opened popup (for toggle close)
 
 function getCanvasPopupKey(pt) {
   if (!pt) return ''
-  const species = String(pt.species || '')
+  const locKey = String(pt.locKey || '')
   const lat = Number(pt.lat)
   const lng = Number(pt.lng)
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return species
-  return `${species}|${lat.toFixed(5)}|${lng.toFixed(5)}`
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return locKey
+  return `${locKey || 'loc'}|${lat.toFixed(5)}|${lng.toFixed(5)}`
 }
 
 function buildClusteredCanvasData(baseData, mapInstance) {
@@ -4006,7 +4139,13 @@ function buildClusteredCanvasData(baseData, mapInstance) {
         const pt = source[idx]
         latSum += pt.lat
         lngSum += pt.lng
-        speciesSet.add(String(pt.species || ''))
+        const list = Array.isArray(pt?.speciesList) ? pt.speciesList : []
+        if (list.length) {
+          list.forEach((name) => { if (name) speciesSet.add(String(name)) })
+        } else {
+          const label = String(pt?.species || '')
+          if (label) speciesSet.add(label)
+        }
         if (Number.isFinite(pt.abaCode) && (!Number.isFinite(maxAbaCode) || pt.abaCode > maxAbaCode)) {
           maxAbaCode = pt.abaCode
         }
@@ -4068,22 +4207,33 @@ function buildClusteredCanvasData(baseData, mapInstance) {
     }
     const abaCode = Number.isFinite(bucket.maxAbaCode) ? bucket.maxAbaCode : null
     const colors = ABA_COLORS[abaCode] || ABA_DEFAULT_COLOR
-    const count = bucket.points.length
+    const speciesSet = new Set()
+    bucket.points.forEach((pt) => {
+      const list = Array.isArray(pt?.speciesList) ? pt.speciesList : []
+      if (list.length) {
+        list.forEach((name) => { if (name) speciesSet.add(String(name)) })
+      } else {
+        const label = String(pt?.species || '')
+        if (label) speciesSet.add(label)
+      }
+    })
+    const pointsCount = bucket.points.length
+    const speciesCount = speciesSet.size || pointsCount
     clustered.push({
-      lat: bucket.latSum / count,
-      lng: bucket.lngSum / count,
+      lat: bucket.latSum / pointsCount,
+      lng: bucket.lngSum / pointsCount,
       fill: colors.fill,
       border: colors.border,
-      species: `${count} observations`,
-      safeSpecies: escapeHtml(`${count} observations`),
+      species: `${speciesCount} species`,
+      safeSpecies: escapeHtml(`${speciesCount} species`),
       abaCode,
       subIds: [],
       subDates: [],
       item: bucket.points[0]?.item || null,
-      label: String(count),
+      label: String(speciesCount),
       hidden: false,
       isCluster: true,
-      clusterCount: count,
+      clusterCount: speciesCount,
     })
   })
 
@@ -4197,71 +4347,181 @@ function buildObservationPopupHtml(pt) {
   const item = pt.item
   const locId = item?.locId ? String(item.locId) : null
   const locName = item?.locName ? String(item.locName) : ''
-  const abaBadge = renderAbaCodeBadge(pt.abaCode)
   const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${pt.lat},${pt.lng}`)}`
-  const speciesEl = `<span class="obs-popup-species">${pt.safeSpecies}</span>`
-  const header = `<div class="obs-popup-header">${abaBadge}${speciesEl}<a class="obs-popup-mapit" href="${mapsUrl}" target="_blank" rel="noopener" title="Map it">&#x1F4CD;</a></div>`
+  const speciesList = Array.isArray(pt?.speciesList) ? pt.speciesList : []
+  const speciesCount = speciesList.length
+
+  const fallbackLocKey = `${Number(pt.lat).toFixed(4)}|${Number(pt.lng).toFixed(4)}`
+  const ptLocKey = String(pt.locKey || locId || fallbackLocKey)
+
+  // Prefer the broader index so a species-focused popup can still show
+  // other notable species at the same location.
+  const locObsAll = Array.isArray(lastPopupLocationIndexAllSpecies?.get?.(ptLocKey))
+    ? lastPopupLocationIndexAllSpecies.get(ptLocKey)
+    : (Array.isArray(lastMapLocationIndex?.get?.(ptLocKey)) ? lastMapLocationIndex.get(ptLocKey) : [])
+
+  const focusSpecies = (() => {
+    const needle = String(selectedSpecies || '').trim()
+    if (needle && locObsAll.some((o) => String(o?.species || '') === needle)) return needle
+    if (speciesCount === 1) return String(speciesList[0] || '').trim() || null
+    return null
+  })()
+
+  const header = (() => {
+    if (focusSpecies) {
+      const code = escapeHtml(getSpeciesMapLabel(focusSpecies))
+      const name = escapeHtml(focusSpecies)
+      return `<div class="obs-popup-header"><span class="obs-popup-code">${code}</span><span class="obs-popup-species obs-popup-species-small">${name}</span><a class="obs-popup-mapit" href="${mapsUrl}" target="_blank" rel="noopener" title="Map it">&#x1F4CD;</a></div>`
+    }
+    const label = escapeHtml(speciesCount === 1 ? String(speciesList[0] || '') : `${speciesCount || 0} species`)
+    return `<div class="obs-popup-header"><span class="obs-popup-species">${label}</span><a class="obs-popup-mapit" href="${mapsUrl}" target="_blank" rel="noopener" title="Map it">&#x1F4CD;</a></div>`
+  })()
 
   const countyRaw = item?.subnational2Name ? String(item.subnational2Name) : ''
   const stateRaw = item?.subnational1Code ? String(item.subnational1Code) : ''
   const stateAbbrev = stateRaw.toUpperCase().startsWith('US-') ? stateRaw.toUpperCase().slice(3) : stateRaw.toUpperCase()
   let countyDisplay = countyRaw.trim()
   if (countyDisplay && !/county\s*$/i.test(countyDisplay)) countyDisplay = `${countyDisplay} County`
-  const countyStateLine = (countyDisplay && stateAbbrev)
-    ? `<div class="obs-popup-county">${escapeHtml(`${countyDisplay}, ${stateAbbrev}`)}</div>`
-    : ''
+  const countyStateText = (countyDisplay && stateAbbrev) ? `${countyDisplay}, ${stateAbbrev}` : ''
 
-  const locationLine = locName
+  const locationLink = locName
     ? (locId
       ? `<a class="obs-popup-location" href="https://ebird.org/hotspot/${encodeURIComponent(locId)}" target="_blank" rel="noopener" title="${escapeHtml(locName)}">${escapeHtml(locName)}</a>`
-      : `<div class="obs-popup-location" title="${escapeHtml(locName)}">${escapeHtml(locName)}</div>`)
+      : `<span class="obs-popup-location" title="${escapeHtml(locName)}">${escapeHtml(locName)}</span>`)
     : ''
 
-  // Location-level list: show every observation at this location in the
-  // current dataset (not grouped to latest).
-  const fallbackLocKey = `${Number(pt.lat).toFixed(4)}|${Number(pt.lng).toFixed(4)}`
-  const ptLocKey = String(pt.locKey || locId || fallbackLocKey)
-  const locObs = Array.isArray(lastMapLocationIndex?.get?.(ptLocKey)) ? lastMapLocationIndex.get(ptLocKey) : []
-  const sortedLocObs = locObs
+  const metaParts = []
+  if (countyStateText) metaParts.push(`<span class="obs-popup-county">${escapeHtml(countyStateText)}</span>`)
+  if (locationLink) metaParts.push(locationLink)
+  const metaLine = metaParts.length ? `<div class="obs-popup-meta">${metaParts.join(' · ')}</div>` : ''
+
+  // Observation bullets: latest + oldest for focused species (or overall if no focus).
+  const focusNeedle = focusSpecies ? String(focusSpecies) : ''
+  const focusObs = (focusNeedle ? locObsAll.filter((o) => String(o?.species || '') === focusNeedle) : locObsAll)
     .slice()
     .sort((a, b) => {
       const aMs = parseObsDate(a?.obsDt)?.getTime?.() ?? 0
       const bMs = parseObsDate(b?.obsDt)?.getTime?.() ?? 0
       if (aMs !== bMs) return bMs - aMs
-      return String(a?.species || '').localeCompare(String(b?.species || ''))
+      return String(a?.subId || '').localeCompare(String(b?.subId || ''))
     })
 
-  const obsItems = sortedLocObs.map((o) => {
-    const dt = formatObsDateTime(o?.obsDt)
-    const badge = renderAbaCodeBadge(o?.abaCode)
+  const latest = focusObs[0] || null
+  const oldest = focusObs.length > 1 ? focusObs[focusObs.length - 1] : null
+  const renderObsBullet = (prefix, o) => {
+    if (!o) return ''
+    const dt = formatObsDayMonthTime24(o?.obsDt)
     const sid = o?.subId ? String(o.subId) : ''
-    const label = `${dt} · ${String(o?.species || '')}`
-    if (sid) {
-      return `<li>${badge}<a href="https://ebird.org/checklist/${encodeURIComponent(sid)}" target="_blank" rel="noopener">${escapeHtml(label)}</a></li>`
+    const code = sid ? escapeHtml(sid) : '—'
+    const codeHtml = sid
+      ? `<a href="https://ebird.org/checklist/${encodeURIComponent(sid)}" target="_blank" rel="noopener">${code}</a>`
+      : `<span>${code}</span>`
+    return `<li><span class="obs-popup-obs-prefix">${escapeHtml(prefix)}:</span> <span>${escapeHtml(dt)}</span> - ${codeHtml}</li>`
+  }
+
+  const obsBullets = []
+  if (latest) obsBullets.push(renderObsBullet('Latest', latest))
+  if (oldest) obsBullets.push(renderObsBullet('Oldest', oldest))
+  const obsSection = obsBullets.length ? `<ul class="obs-popup-checklist">${obsBullets.join('')}</ul>` : ''
+
+  // Other notable species at this location (even when in single-species view)
+  const otherSpeciesSection = (() => {
+    const allSpeciesHere = Array.from(new Set(locObsAll.map((o) => String(o?.species || '').trim()).filter(Boolean)))
+    const others = allSpeciesHere.filter((sp) => !focusNeedle || sp !== focusNeedle)
+    if (others.length === 0) return ''
+
+    const maxAbaBySpecies = new Map()
+    const lastMsBySpecies = new Map()
+    for (const o of locObsAll) {
+      const sp = String(o?.species || '').trim()
+      if (!sp) continue
+      const code = Number(o?.abaCode)
+      if (Number.isFinite(code)) {
+        const prev = maxAbaBySpecies.get(sp)
+        if (!Number.isFinite(prev) || code > prev) maxAbaBySpecies.set(sp, code)
+      }
+      const ms = parseObsDate(o?.obsDt)?.getTime?.() ?? 0
+      const prevMs = lastMsBySpecies.get(sp) || 0
+      if (ms > prevMs) lastMsBySpecies.set(sp, ms)
     }
-    return `<li>${badge}<span>${escapeHtml(label)}</span></li>`
-  })
 
-  const obsSection = obsItems.length
-    ? `<ul class="obs-popup-checklist">${obsItems.join('')}</ul>`
-    : ''
+    others.sort((a, b) => {
+      const aCode = maxAbaBySpecies.get(a)
+      const bCode = maxAbaBySpecies.get(b)
+      const aNum = Number.isFinite(aCode) ? aCode : -1
+      const bNum = Number.isFinite(bCode) ? bCode : -1
+      if (aNum !== bNum) return bNum - aNum
+      const aMs = lastMsBySpecies.get(a) || 0
+      const bMs = lastMsBySpecies.get(b) || 0
+      if (aMs !== bMs) return bMs - aMs
+      return String(a).localeCompare(String(b))
+    })
 
-  return `<div class="obs-popup-inner">${header}${countyStateLine}${locationLine}${obsSection}</div>`
+    const items = others.map((sp) => {
+      const code = escapeHtml(getSpeciesMapLabel(sp))
+      const name = escapeHtml(sp)
+      return `<li><a class="js-switch-species" href="#" data-species="${escapeHtml(sp)}" data-loc-key="${escapeHtml(ptLocKey)}" data-lat="${escapeHtml(pt.lat)}" data-lng="${escapeHtml(pt.lng)}"><span class="obs-popup-code">${code}</span> <span class="obs-popup-other-name">${name}</span></a></li>`
+    })
+
+    return `<div class="obs-popup-section-title">Other notable species at location:</div><ul class="obs-popup-checklist obs-popup-other">${items.join('')}</ul>`
+  })()
+
+  return `<div class="obs-popup-inner" data-loc-key="${escapeHtml(ptLocKey)}">${header}${metaLine}${obsSection}${otherSpeciesSection}</div>`
 }
 
 function openObservationPopup(pt) {
   if (!map || !pt) return
   const html = buildObservationPopupHtml(pt)
   if (!html) return
-  if (!fastCanvasPopup) fastCanvasPopup = L.popup({ maxWidth: 180, className: 'obs-popup' })
+  ensurePopupSpeciesSwitchHandler()
+  if (!fastCanvasPopup) fastCanvasPopup = L.popup({ maxWidth: 260, className: 'obs-popup' })
   fastCanvasPopupKey = getCanvasPopupKey(pt)
   fastCanvasPopup.setLatLng([pt.lat, pt.lng]).setContent(html).openOn(map)
 }
 
-function pickBestSpeciesPoint(points) {
+let _popupSpeciesSwitchInstalled = false
+function ensurePopupSpeciesSwitchHandler() {
+  if (_popupSpeciesSwitchInstalled) return
+  _popupSpeciesSwitchInstalled = true
+  document.addEventListener('click', (event) => {
+    const link = event.target?.closest?.('.obs-popup a.js-switch-species')
+    if (!link) return
+    event.preventDefault()
+    const species = String(link.dataset.species || '').trim()
+    const locKey = String(link.dataset.locKey || '').trim()
+    const lat = Number(link.dataset.lat)
+    const lng = Number(link.dataset.lng)
+    if (!species) return
+
+    selectedSpecies = species
+    applyActiveFiltersAndRender({ allowAutoRecovery: false })
+
+    if (!map) return
+    const pts = speciesMarkers.get(species)
+    if (!pts || pts.length === 0) return
+    const targetPt = (locKey
+      ? (pts.find((p) => String(p?.locKey || '') === locKey) || null)
+      : null) || (Number.isFinite(lat) && Number.isFinite(lng)
+      ? (pts.find((p) => Math.abs(Number(p?.lat) - lat) < 1e-6 && Math.abs(Number(p?.lng) - lng) < 1e-6) || null)
+      : null) || pickBestSpeciesPoint(pts, species)
+
+    if (targetPt) {
+      map.invalidateSize()
+      map.setView([targetPt.lat, targetPt.lng], Math.max(map.getZoom(), 13), { animate: true })
+      window.setTimeout(() => openObservationPopup(targetPt), 80)
+    }
+  })
+}
+
+function pickBestSpeciesPoint(points, speciesName = '') {
   if (!Array.isArray(points) || points.length === 0) return null
   if (points.length === 1) return points[0]
+  const needle = String(speciesName || '')
   const toMs = (pt) => {
+    if (needle && pt?.speciesLastMs instanceof Map) {
+      const ms = pt.speciesLastMs.get(needle)
+      if (Number.isFinite(ms)) return ms
+    }
     const list = Array.isArray(pt?.subDates) ? pt.subDates : []
     let best = 0
     list.forEach((raw) => {
@@ -4335,8 +4595,10 @@ function renderNotablesOnMap(observations, activeCountyCode = '', fitToObservati
   const totalPoints = Array.isArray(observations) ? observations.length : 0
   const showPermanentLabels = labelMode !== 'off' && totalPoints <= MAP_LABEL_MAX_POINTS
 
-  // Build an index of *all* observations at each location for popup display.
-  const locationIndex = new Map() // locKey -> { seen:Set, items:Array }
+  // Build an index of *all* observations at each location for popup display,
+  // while also aggregating per-location metadata for rendering one point per
+  // location (avoids overlapping labels when multiple species share a hotspot).
+  const locationIndex = new Map() // locKey -> { seen:Set, items:Array, speciesSet:Set, speciesAbaMax:Map, speciesLastMs:Map, maxAba, repItem, lat, lng }
   if (Array.isArray(observations)) {
     for (const item of observations) {
       const lat = Number(item?.lat)
@@ -4345,57 +4607,85 @@ function renderNotablesOnMap(observations, activeCountyCode = '', fitToObservati
       const species = String(item?.comName || 'Unknown species')
       const locId = item?.locId ? String(item.locId) : ''
       const locKey = locId || `${lat.toFixed(4)}|${lng.toFixed(4)}`
-      if (!locationIndex.has(locKey)) locationIndex.set(locKey, { seen: new Set(), items: [] })
+      if (!locationIndex.has(locKey)) {
+        locationIndex.set(locKey, {
+          seen: new Set(),
+          items: [],
+          speciesSet: new Set(),
+          speciesAbaMax: new Map(),
+          speciesLastMs: new Map(),
+          maxAba: null,
+          repItem: item,
+          lat,
+          lng,
+        })
+      }
       const bucket = locationIndex.get(locKey)
+      bucket.lat = Number.isFinite(bucket.lat) ? bucket.lat : lat
+      bucket.lng = Number.isFinite(bucket.lng) ? bucket.lng : lng
+
+      bucket.speciesSet.add(species)
+
+      const code = getAbaCodeNumber(item)
+      if (Number.isFinite(code)) {
+        if (!Number.isFinite(bucket.maxAba) || code > bucket.maxAba) {
+          bucket.maxAba = code
+          bucket.repItem = item
+        }
+        const existingMax = bucket.speciesAbaMax.get(species)
+        if (!Number.isFinite(existingMax) || code > existingMax) bucket.speciesAbaMax.set(species, code)
+      }
+
+      const obsDtRaw = item?.obsDt ? String(item.obsDt) : ''
+      const parsed = obsDtRaw ? parseObsDate(obsDtRaw) : null
+      const ms = parsed ? parsed.getTime() : 0
+      if (ms > 0) {
+        const existingMs = bucket.speciesLastMs.get(species) || 0
+        if (ms > existingMs) bucket.speciesLastMs.set(species, ms)
+      }
+
       const subId = item?.subId ? String(item.subId) : ''
-      const obsDt = item?.obsDt ? String(item.obsDt) : ''
-      const uniq = `${species}|${subId}|${obsDt}`
+      const uniq = `${species}|${subId}|${obsDtRaw}`
       if (bucket.seen.has(uniq)) continue
       bucket.seen.add(uniq)
       bucket.items.push({
         species,
-        abaCode: getAbaCodeNumber(item),
-        obsDt: obsDt || null,
+        abaCode: code,
+        obsDt: obsDtRaw || null,
         subId: subId || null,
       })
     }
   }
 
-  // Deduplicate: one canvas point per species×location, but collect ALL subIds
-  const seenMap = new Map()  // key → deduped entry index
-  const deduped = []
-  if (Array.isArray(observations)) {
-    for (const item of observations) {
-      const lat = Number(item?.lat)
-      const lng = Number(item?.lng)
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue
-      const species = String(item?.comName || 'Unknown species')
-      const locId = item?.locId ? String(item.locId) : ''
-      const locKey = locId || `${lat.toFixed(4)}|${lng.toFixed(4)}`
-      const key = `${species}|${locKey}`
-      const subId = item?.subId ? String(item.subId) : null
-      const obsDt = item?.obsDt ? String(item.obsDt) : null
-      if (!seenMap.has(key)) {
-        const entry = { item, lat, lng, species, locKey, subIds: subId ? [subId] : [], subDates: obsDt ? [obsDt] : [] }
-        seenMap.set(key, deduped.length)
-        deduped.push(entry)
-      } else if (subId) {
-        const existing = deduped[seenMap.get(key)]
-        if (!existing.subIds.includes(subId)) {
-          existing.subIds.push(subId)
-          existing.subDates.push(obsDt)
-        }
-      }
+  const locationPoints = Array.from(locationIndex.entries()).map(([locKey, bucket]) => {
+    const speciesList = Array.from(bucket?.speciesSet || []).filter(Boolean)
+      .sort((a, b) => {
+        const aCode = bucket?.speciesAbaMax?.get?.(a)
+        const bCode = bucket?.speciesAbaMax?.get?.(b)
+        const aNum = Number.isFinite(aCode) ? aCode : -1
+        const bNum = Number.isFinite(bCode) ? bCode : -1
+        if (aNum !== bNum) return bNum - aNum
+        return String(a).localeCompare(String(b))
+      })
+
+    return {
+      locKey,
+      lat: bucket.lat,
+      lng: bucket.lng,
+      maxAba: Number.isFinite(bucket.maxAba) ? bucket.maxAba : null,
+      item: bucket.repItem || null,
+      speciesList,
+      speciesLastMs: bucket.speciesLastMs instanceof Map ? bucket.speciesLastMs : new Map(),
     }
-  }
+  })
 
   // Signature dedup — skip if nothing changed and we're not force-fitting
   let signatureHash = 0
-  for (const { lat, lng, item } of deduped) {
-    const code = getAbaCodeNumber(item) || 0
+  for (const { lat, lng, maxAba } of locationPoints) {
+    const code = Number.isFinite(maxAba) ? maxAba : 0
     signatureHash = ((signatureHash * 33) ^ (Math.round(lat * 10000) + Math.round(lng * 10000) + code)) >>> 0
   }
-  const renderSignature = `${activeCountyCode}|${deduped.length}|${signatureHash}|${labelMode}`
+  const renderSignature = `${activeCountyCode}|${locationPoints.length}|${signatureHash}|${labelMode}`
   if (!fitToObservations && renderSignature === lastMapRenderSignature) {
     perfEnd('map')
     return
@@ -4405,18 +4695,52 @@ function renderNotablesOnMap(observations, activeCountyCode = '', fitToObservati
   // Build lightweight data objects — no Leaflet marker construction
   const nextData = []
   const nextSpeciesMap = new Map()  // species → [{lat,lng}] for table row highlight
-  for (const { item, lat, lng, species, locKey, subIds, subDates } of deduped) {
-    const resolvedAba = getAbaCodeNumber(item)
-    const abaCode = Number.isFinite(resolvedAba) ? resolvedAba : null
+  for (const loc of locationPoints) {
+    const lat = Number(loc?.lat)
+    const lng = Number(loc?.lng)
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue
+
+    const abaCode = Number.isFinite(loc?.maxAba) ? loc.maxAba : null
     const colors = ABA_COLORS[abaCode] || ABA_DEFAULT_COLOR
-    const safeSpecies = escapeHtml(species)
+    const item = loc?.item || null
+    const locKey = String(loc?.locKey || '')
+    const speciesList = Array.isArray(loc?.speciesList) ? loc.speciesList : []
+
     const itemCounty = String(item?.subnational2Code || '').toUpperCase()
     const isInActiveCounty = !activeCountyCode || itemCounty === activeCountyCode
-    const label = (isInActiveCounty && showPermanentLabels) ? (labelMode === 'abbr' ? getSpeciesMapLabel(species) : species) : null
-    const pt = { lat, lng, fill: colors.fill, border: colors.border, species, safeSpecies, abaCode, subIds, subDates, item, label, hidden: false, locKey }
+
+    const label = (() => {
+      if (!isInActiveCounty || !showPermanentLabels) return null
+      if (labelMode === 'full') {
+        return speciesList.length === 1 ? speciesList[0] : `${speciesList.length} spp`
+      }
+      // Abbrev mode: show a short multi-species label without spamming overlays.
+      const maxParts = 2
+      const parts = speciesList.slice(0, maxParts).map((name) => getSpeciesMapLabel(name))
+      const remaining = speciesList.length - parts.length
+      return `${parts.join(' ')}${remaining > 0 ? ` +${remaining}` : ''}`.trim() || null
+    })()
+
+    const pt = {
+      lat,
+      lng,
+      fill: colors.fill,
+      border: colors.border,
+      abaCode,
+      item,
+      label,
+      hidden: false,
+      locKey,
+      speciesList,
+      speciesLastMs: loc?.speciesLastMs instanceof Map ? loc.speciesLastMs : new Map(),
+    }
+
     nextData.push(pt)
-    if (!nextSpeciesMap.has(species)) nextSpeciesMap.set(species, [])
-    nextSpeciesMap.get(species).push(pt)
+    speciesList.forEach((name) => {
+      if (!name) return
+      if (!nextSpeciesMap.has(name)) nextSpeciesMap.set(name, [])
+      nextSpeciesMap.get(name).push(pt)
+    })
   }
 
   if (renderId !== latestMapRenderId) { perfEnd('map'); return }
@@ -4464,6 +4788,17 @@ function renderNotablesOnMap(observations, activeCountyCode = '', fitToObservati
   }
 }
 
+function recomputeCanvasVisibilityFromHiddenSpecies() {
+  const hidden = hiddenSpecies instanceof Set ? hiddenSpecies : new Set()
+  const base = Array.isArray(fastCanvasBaseData) ? fastCanvasBaseData : []
+  base.forEach((pt) => {
+    const list = Array.isArray(pt?.speciesList) ? pt.speciesList : []
+    // Hide a location point only if *all* of its species are hidden.
+    pt.hidden = list.length ? list.every((name) => hidden.has(String(name))) : false
+  })
+  fastCanvasOverlay?.redraw()
+}
+
 async function loadCountyNotables(latitude, longitude, countyRegion = null, requestId = null, countySwitchRequestId = null, allowStateFallback = false) {
   perfStart('fetch')
   const notablesLoadId = ++latestNotablesLoadId
@@ -4480,8 +4815,35 @@ async function loadCountyNotables(latitude, longitude, countyRegion = null, requ
   const previousRowsHtml = notableRows.innerHTML
   const previousRenderStatus = tableRenderStatus?.textContent || ''
   const hadPreviousRows = /<tr[\s>]/i.test(previousRowsHtml) && !/(Loading county notables|request timed out|did not complete|not available right now|No notable observations found)/i.test(previousRowsHtml)
-  const cachedWarm = !hadPreviousRows ? loadNotablesCache(countyRegion) : null
-  const hasCachedWarm = Array.isArray(cachedWarm?.observations) && cachedWarm.observations.length > 0
+  let cachedWarm = !hadPreviousRows ? loadNotablesCache(countyRegion) : null
+  let warmSource = null
+  let hasCachedWarm = Array.isArray(cachedWarm?.observations) && cachedWarm.observations.length > 0
+  let skipNetworkFetch = false
+
+  // If we have a state-level cache that covers the requested daysBack, use it
+  // to serve county switches without additional API calls.
+  if (!hasCachedWarm && !hadPreviousRows && normalizedTargetRegion && isCountyRegionCode(normalizedTargetRegion)) {
+    const stateRegion = stateRegionFromCountyRegion(normalizedTargetRegion)
+    const stateCached = stateRegion ? loadNotablesCache(stateRegion) : null
+    const stateDays = getCacheDaysBack(stateCached)
+    if (stateRegion && Array.isArray(stateCached?.observations) && stateCached.observations.length > 0 && Number.isFinite(stateDays) && stateDays >= effectiveDaysBack) {
+      const scoped = stateCached.observations.filter((item) => String(item?.subnational2Code || '').toUpperCase() === normalizedTargetRegion)
+      if (scoped.length > 0) {
+        cachedWarm = {
+          observations: scoped,
+          countyName: String(scoped[0]?.subnational2Name || '') || null,
+          countyRegion: normalizedTargetRegion,
+          sourceStrategy: 'state-cache-client',
+          __meta: { daysBack: stateDays, fromState: stateRegion },
+        }
+        hasCachedWarm = true
+        warmSource = 'state'
+        skipNetworkFetch = true
+      }
+    }
+  }
+
+  if (hasCachedWarm && !warmSource) warmSource = 'county'
 
   setMapLoading(true, 'Loading notable observations…')
   setTableRenderStatus('load-start')
@@ -4499,9 +4861,20 @@ async function loadCountyNotables(latitude, longitude, countyRegion = null, requ
       renderNotablesOnMap(warmFiltered, currentActiveCountyCode, true)
       maybeApplyHiResOnCountyLoad()
     }
-    notableMeta.textContent = `${notableMeta.textContent} · cached`
+    notableMeta.textContent = `${notableMeta.textContent} · ${warmSource === 'state' ? 'state-cached' : 'cached'}`
     setTableRenderStatus(`cache-warm rows=${cachedWarm.observations.length}`)
     markMapPartReady('observations')
+
+    if (skipNetworkFetch) {
+      perfEnd('fetch')
+      setMapLoading(false)
+      // Ensure we still fill the broader state cache in the background (e.g., 14d)
+      // so future navigation stays offline.
+      const stateRegion = normalizedTargetRegion ? stateRegionFromCountyRegion(normalizedTargetRegion) : null
+      if (stateRegion) void prefetchStateRarities(stateRegion, statePrefetchDaysBack)
+      updateRuntimeLog()
+      return
+    }
   } else {
     notableCount.className = 'badge warn'
     notableCount.textContent = hadPreviousRows ? 'Refreshing…' : 'Loading…'
@@ -4612,7 +4985,7 @@ async function loadCountyNotables(latitude, longitude, countyRegion = null, requ
     }
 
     if (observations.length > 0) {
-      saveNotablesCache(result?.countyRegion || countyRegion || null, result)
+      saveNotablesCache(result?.countyRegion || countyRegion || null, result, { daysBack: effectiveDaysBack })
     }
 
     const activeCountyCode = (result?.countyRegion || countyRegion || '').toUpperCase()
@@ -4705,6 +5078,10 @@ async function loadCountyNotables(latitude, longitude, countyRegion = null, requ
     maybeApplyHiResOnCountyLoad()
     if (strategy) {
       notableMeta.textContent = `${notableMeta.textContent} · ${strategy}`
+    }
+    const activeStateRegion = stateRegionFromCountyRegion(currentActiveCountyCode || currentCountyRegion || '')
+    if (activeStateRegion) {
+      void prefetchStateRarities(activeStateRegion, statePrefetchDaysBack)
     }
     updateRuntimeLog()
   } catch (error) {
@@ -4849,7 +5226,7 @@ async function loadStateNotables(stateRegion, requestId = null) {
       markMapPartReady('stateMask')
     }
     currentRawObservations = Array.isArray(observations) ? observations : []
-    saveNotablesCache(normalizedState, { observations: currentRawObservations })
+    saveNotablesCache(normalizedState, { observations: currentRawObservations }, { daysBack: effectiveDaysBack })
     const stateCountyEntries = buildStateCountyEntries(currentRawObservations, stateRegion)
     stateCountyOptionsCache.set(stateRegion, stateCountyEntries)
     currentCountyName = getStateNameByRegion(normalizedState)
@@ -5389,7 +5766,7 @@ speciesPickerList?.addEventListener('click', (event) => {
     const pts = speciesMarkers.get(selectedSpecies)
     if (pts && pts.length > 0) {
       map.invalidateSize()
-      const targetPt = pickBestSpeciesPoint(pts)
+      const targetPt = pickBestSpeciesPoint(pts, selectedSpecies)
       if (pts.length === 1 && targetPt) {
         map.setView([targetPt.lat, targetPt.lng], Math.max(map.getZoom(), 13), { animate: true })
         openObservationPopup(targetPt)
@@ -5580,7 +5957,7 @@ notableRows.addEventListener('click', (event) => {
   const pts = speciesMarkers.get(species)
   if (!pts || pts.length === 0 || !map) return
   if (map) map.invalidateSize()
-  const targetPt = pickBestSpeciesPoint(pts)
+  const targetPt = pickBestSpeciesPoint(pts, species)
   if (pts.length === 1 && targetPt) {
     map.setView([targetPt.lat, targetPt.lng], Math.max(map.getZoom(), 13), { animate: true })
     openObservationPopup(targetPt)
@@ -5615,8 +5992,7 @@ notableRows.addEventListener('change', (event) => {
   const show = cb.checked
   if (show) hiddenSpecies.delete(species)
   else hiddenSpecies.add(species)
-  const pts = speciesMarkers.get(species)
-  if (pts) { pts.forEach((p) => { p.hidden = !show }); fastCanvasOverlay?.redraw() }
+  recomputeCanvasVisibilityFromHiddenSpecies()
   // Sync toggle-all checkbox state
   const toggleAll = document.querySelector('#toggleAllVis')
   if (toggleAll) {
@@ -5630,11 +6006,11 @@ notableRows.addEventListener('change', (event) => {
 document.querySelector('#toggleAllVis')?.addEventListener('change', (event) => {
   const show = event.target.checked
   event.target.indeterminate = false
-  speciesMarkers.forEach((pts, species) => {
-    if (show) { hiddenSpecies.delete(species); pts.forEach((p) => { p.hidden = false }) }
-    else { hiddenSpecies.add(species); pts.forEach((p) => { p.hidden = true }) }
+  speciesMarkers.forEach((_pts, species) => {
+    if (show) hiddenSpecies.delete(species)
+    else hiddenSpecies.add(species)
   })
-  fastCanvasOverlay?.redraw()
+  recomputeCanvasVisibilityFromHiddenSpecies()
   notableRows.querySelectorAll('.obs-vis-cb').forEach((cb) => { cb.checked = show })
 })
 
@@ -5654,6 +6030,18 @@ async function bootAppOnce() {
   if (forceFreshLocation) {
     launchUrl.searchParams.delete('force_location')
     window.history.replaceState({}, '', launchUrl.toString())
+  }
+
+  // Optional perf tuning: prefetch a whole state's rarities in the background.
+  // Useful for avoiding many subsequent county calls when navigating within a state.
+  const prefetchBackParam = launchUrl.searchParams.get('prefetch_back')
+  if (prefetchBackParam != null && prefetchBackParam !== '') {
+    const parsed = Number(prefetchBackParam)
+    if (Number.isFinite(parsed)) {
+      statePrefetchDaysBack = Math.max(1, Math.min(14, Math.round(parsed)))
+    }
+  } else {
+    statePrefetchDaysBack = DEFAULT_STATE_PREFETCH_DAYS_BACK
   }
 
   // Default fallback: Woodland, CA (inside Yolo County). Used when geolocation fails/is blocked.
