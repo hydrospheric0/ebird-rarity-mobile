@@ -30,6 +30,45 @@ function extractParentheticalCode(value) {
   return match ? normalizeCodeToken(match[1]) : ''
 }
 
+function computeFallbackCode4(speciesName) {
+  const raw = stripParenthetical(speciesName)
+  const cleaned = String(raw || '')
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z\s\-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (!cleaned) return ''
+
+  // Expand hyphenated tokens (e.g. Rufous-capped -> Rufous + capped)
+  const parts = cleaned
+    .split(' ')
+    .flatMap((t) => t.split('-'))
+    .map((t) => t.trim())
+    .filter(Boolean)
+
+  const stop = new Set(['and', 'of', 'the', 'a', 'an'])
+  const tokens = parts.filter((t) => !stop.has(t))
+  if (!tokens.length) return ''
+
+  const take = (t, n) => String(t || '').slice(0, n)
+  let code = ''
+  if (tokens.length >= 4) {
+    code = tokens.slice(0, 4).map((t) => take(t, 1)).join('')
+  } else if (tokens.length === 3) {
+    code = take(tokens[0], 1) + take(tokens[1], 1) + take(tokens[2], 2)
+  } else if (tokens.length === 2) {
+    code = take(tokens[0], 2) + take(tokens[1], 2)
+  } else {
+    code = take(tokens[0], 4)
+  }
+
+  const normalized = normalizeCodeToken(code)
+  return normalized.length === 4 ? normalized : ''
+}
+
 const ABA_CODE_OVERRIDES = new Map([
   ['northern yellow warbler', 1],
   ['yellow warbler', 1],
@@ -133,8 +172,12 @@ export function getSpeciesMapLabel(speciesName) {
     return CODE4_OVERRIDES.get(normalizedName)
   }
   const info = getSpeciesReference(speciesName)
-  if (!info) return speciesName
-  return info.code4 || info.code6 || speciesName
+  if (info) {
+    return info.code4 || info.code6 || speciesName
+  }
+
+  const fallback = computeFallbackCode4(speciesName)
+  return fallback || speciesName
 }
 
 export const SPECIES_REFERENCE = species

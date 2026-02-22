@@ -1423,6 +1423,7 @@ async function prefetchCountySummariesForPicker(options) {
   if (!Number.isFinite(lastUserLat) || !Number.isFinite(lastUserLng)) return
 
   const token = ++countySummaryPrefetchToken
+  const effectiveDaysBack = Math.max(1, Math.min(14, Number(filterDaysBack) || 7))
   const targets = options.filter((opt) => opt?.countyRegion && !opt.isActive)
   let pointer = 0
   const workers = Math.min(3, targets.length)
@@ -1447,7 +1448,7 @@ async function prefetchCountySummariesForPicker(options) {
           continue
         }
 
-        const result = await fetchCountyNotablesWithRetry(lastUserLat, lastUserLng, 14, region, 1)
+        const result = await fetchCountyNotablesWithRetry(lastUserLat, lastUserLng, effectiveDaysBack, region, 1)
         if (!Array.isArray(result?.observations) || result.observations.length === 0) continue
         saveNotablesCache(region, result)
         const scoped = filterObservationsToCountyRegion(result.observations, region)
@@ -2081,7 +2082,8 @@ async function ensureSearchCountyOptionsForState(stateRegion) {
 
   setSearchCountyLoading('Loading counties…')
   try {
-    const observations = await fetchRegionRarities(normalizedState, 14, 30000)
+    const effectiveDaysBack = Math.max(1, Math.min(14, Number(filterDaysBack) || 7))
+    const observations = await fetchRegionRarities(normalizedState, effectiveDaysBack, 30000)
     if (requestId !== latestSearchCountyOptionsRequestId) return
     const entries = buildStateCountyEntries(observations, normalizedState)
     stateCountyOptionsCache.set(normalizedState, entries)
@@ -4453,7 +4455,9 @@ function renderNotablesOnMap(observations, activeCountyCode = '', fitToObservati
       [Math.max(...lats), Math.max(...lngs)]
     )
     if (bounds.isValid()) {
-      const effectiveMaxZoom = Number.isFinite(Number(mapFitMaxZoomOnce)) ? Number(mapFitMaxZoomOnce) : MAP_POINTS_FIT_MAX_ZOOM
+      const effectiveMaxZoom = (typeof mapFitMaxZoomOnce === 'number' && Number.isFinite(mapFitMaxZoomOnce))
+        ? mapFitMaxZoomOnce
+        : MAP_POINTS_FIT_MAX_ZOOM
       mapFitMaxZoomOnce = null
       map.fitBounds(bounds, { padding: [24, 24], maxZoom: effectiveMaxZoom, animate: false })
     }
@@ -4463,6 +4467,7 @@ function renderNotablesOnMap(observations, activeCountyCode = '', fitToObservati
 async function loadCountyNotables(latitude, longitude, countyRegion = null, requestId = null, countySwitchRequestId = null, allowStateFallback = false) {
   perfStart('fetch')
   const notablesLoadId = ++latestNotablesLoadId
+  const effectiveDaysBack = Math.max(1, Math.min(14, Number(filterDaysBack) || 7))
   const previousObservations = Array.isArray(currentRawObservations) ? currentRawObservations.slice() : []
   const previousCountyNameState = currentCountyName
   const previousCountyRegionState = currentCountyRegion
@@ -4540,10 +4545,10 @@ async function loadCountyNotables(latitude, longitude, countyRegion = null, requ
     // Fire primary (with countyRegion) and generic fallback concurrently so we
     // don't stack two sequential 5 s timeouts when the primary is slow/failing.
     const needFallback = !countyRegion // if no region provided, only one fetch needed
-    const primaryPromise = fetchCountyNotablesWithRetry(latitude, longitude, 14, countyRegion, 1).catch((e) => { console.warn('Primary county notables failed:', e); return null })
+    const primaryPromise = fetchCountyNotablesWithRetry(latitude, longitude, effectiveDaysBack, countyRegion, 1).catch((e) => { console.warn('Primary county notables failed:', e); return null })
     const fallbackPromise = needFallback
       ? primaryPromise
-      : fetchCountyNotablesWithRetry(latitude, longitude, 14, null, 1).catch((e) => { console.warn('Fallback county notables failed:', e); return null })
+      : fetchCountyNotablesWithRetry(latitude, longitude, effectiveDaysBack, null, 1).catch((e) => { console.warn('Fallback county notables failed:', e); return null })
 
     const [primaryResult, fallbackResult] = await Promise.all([primaryPromise, fallbackPromise])
 
@@ -4582,7 +4587,7 @@ async function loadCountyNotables(latitude, longitude, countyRegion = null, requ
       const stateRegion = stateRegionFromCountyRegion(countyRegion)
       if (stateRegion) {
         try {
-            const stateData = await fetchRegionRarities(stateRegion, 14)
+            const stateData = await fetchRegionRarities(stateRegion, effectiveDaysBack)
           const filtered = Array.isArray(stateData)
             ? stateData.filter((item) => String(item?.subnational2Code || '').toUpperCase() === countyRegion)
             : []
@@ -4619,7 +4624,7 @@ async function loadCountyNotables(latitude, longitude, countyRegion = null, requ
       const stateRegion = stateRegionFromCountyRegion(activeCountyCode)
       if (stateRegion) {
         try {
-          const stateData = await fetchRegionRarities(stateRegion, 14)
+          const stateData = await fetchRegionRarities(stateRegion, effectiveDaysBack)
           const stateFiltered = Array.isArray(stateData)
             ? stateData.filter((item) => String(item?.subnational2Code || '').toUpperCase() === activeCountyCode)
             : []
