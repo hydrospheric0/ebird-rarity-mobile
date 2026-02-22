@@ -43,7 +43,8 @@ app.innerHTML = `
       </div>
     </div>
     <header class="app-header">
-      <h1 class="app-title">eBird County Rarities</h1>
+      <h1 class="app-title"><span class="brandName">Twitcher</span><span class="brandTagline"> - find eBird Rarities</span></h1>
+      <button id="menuInfo" class="header-toggle" type="button" aria-label="About this page" title="About this page">i</button>
 
       <section id="statusPopover" class="status-popover status-hidden" aria-hidden="true">
         <div class="row">
@@ -122,8 +123,9 @@ app.innerHTML = `
             <table class="notable-table">
               <thead>
                 <tr>
-                  <th class="col-species sortable" id="thSpecies" data-sort="aba">Species<span class="sort-icon" aria-hidden="true"> ↓</span></th>
-                  <th class="col-county">County</th>
+                  <th class="col-code sortable" id="thCode" data-sort="code">Code<span class="sort-icon" aria-hidden="true"></span></th>
+                  <th class="col-species sortable" id="thSpecies" data-sort="species">Species<span class="sort-icon" aria-hidden="true"></span></th>
+                  <th class="col-county sortable" id="thCounty" data-sort="county">County<span class="sort-icon" aria-hidden="true"></span></th>
                   <th class="col-date sortable" id="thLast" data-sort="last">Last<span class="sort-icon" aria-hidden="true"></span></th>
                   <th class="col-date sortable" id="thFirst" data-sort="first">First<span class="sort-icon" aria-hidden="true"></span></th>
                   <th class="col-reports">#</th>
@@ -360,7 +362,7 @@ let lastUserLat = null
 let lastUserLng = null
 let currentTableData = [] // all rows for re-sorting
 let lastTableObservationSource = []
-let sortState = { col: 'aba', dir: 'desc' } // col: 'aba'|'last'|'first'|'distance', dir: 'asc'|'desc'
+let sortState = { col: 'code', dir: 'desc' } // col: 'code'|'species'|'county'|'last'|'first'|'distance', dir: 'asc'|'desc'
 let activeSortCountyRegion = YOLO_COUNTY_REGION
 let pinnedSpecies = null
 let preservePinnedSpeciesOnce = false
@@ -389,6 +391,8 @@ let tapDebugEnabled = false
 let tapDebugEvents = []
 let lastMapRenderSignature = ''
 let latestMapRenderId = 0
+let lastFilteredObservations = []
+let lastFilteredRegion = null
 const countySummaryByRegion = new Map()
 const stateSummaryByRegion = new Map()
 const stateCountyOptionsCache = new Map()
@@ -543,7 +547,7 @@ function armUiFailsafeTimer() {
         notableCount.textContent = '0'
       }
       if (notableMeta) notableMeta.textContent = 'Recovered from a stuck loading state'
-      if (notableRows) notableRows.innerHTML = '<tr><td colspan="7">A stuck loading operation was reset. Try your action again.</td></tr>'
+      if (notableRows) notableRows.innerHTML = '<tr><td colspan="8">A stuck loading operation was reset. Try your action again.</td></tr>'
       updateStatPills('0', '0', '0')
       setTableRenderStatus('failsafe-watchdog-reset')
     }
@@ -724,6 +728,8 @@ function applyActiveFiltersAndRender(options = {}) {
   const abaPillSource = pillObservationSource
   refreshSearchSpeciesOptions(filteredByDays)
   renderNotableTable(filtered, currentCountyName, currentCountyRegion, abaPillSource)
+  lastFilteredObservations = filtered
+  lastFilteredRegion = activeRegion
   if (renderMap) {
     renderNotablesOnMap(
       isNationalSummaryMode ? [] : filtered,
@@ -1035,9 +1041,13 @@ function formatCountySummary(summary) {
   return `Rarities: ${summary.rarityCount} · ABA ${abaText}`
 }
 
-function formatCountySummaryPills(summary) {
+function formatCountySummaryPills(summary, options = {}) {
   if (!summary) return ''
-  const pills = [`<span class="county-pill county-pill-rarity" title="Total rarities">${summary.rarityCount}</span>`]
+  const { includeTotal = true } = options || {}
+  const pills = []
+  if (includeTotal) {
+    pills.push(`<span class="county-pill county-pill-rarity" title="Total rarities">${summary.rarityCount}</span>`)
+  }
   for (let code = 1; code <= 6; code += 1) {
     const count = summary.abaCounts.get(code) || 0
     if (count > 0) {
@@ -1105,7 +1115,7 @@ function renderCountyPickerOptions() {
     .map((opt, index) => {
       const activeClass = opt.isActive ? ' is-active' : ''
       const summary = getCountySummary(opt.countyRegion, opt.isActive)
-      const pillsHtml = formatCountySummaryPills(summary)
+      const pillsHtml = formatCountySummaryPills(summary, { includeTotal: false })
       return `<button type="button" class="county-option${activeClass}" data-index="${index}" role="option" aria-selected="${opt.isActive ? 'true' : 'false'}"><span class="county-option-name">${escapeHtml(opt.countyName)}</span><span class="county-option-meta county-option-meta-pills">${pillsHtml}</span></button>`
     })
     .join('')
@@ -1119,6 +1129,26 @@ const DOT_ABA_COLORS = {
 function updateCountyDots() {
   if (!map || !countyPickerOptions.length) return
   const showCountyNames = map.getZoom() > 10
+
+  const activeRegion = String(currentCountyRegion || '').toUpperCase()
+  const activeCountyCode = String(currentActiveCountyCode || '').toUpperCase()
+  const isStateMode = /^US-[A-Z]{2}$/.test(activeRegion) && !isCountyRegionCode(activeCountyCode) && activeRegion !== US_REGION_CODE
+  const stateFiltered = (isStateMode && lastFilteredRegion === activeRegion && Array.isArray(lastFilteredObservations)) ? lastFilteredObservations : null
+
+  const countsByCountyRegion = stateFiltered ? new Map() : null
+  const maxAbaByCountyRegion = stateFiltered ? new Map() : null
+  if (stateFiltered) {
+    for (const item of stateFiltered) {
+      const countyRegion = String(item?.subnational2Code || '').toUpperCase()
+      if (!isCountyRegionCode(countyRegion)) continue
+      countsByCountyRegion.set(countyRegion, (countsByCountyRegion.get(countyRegion) || 0) + 1)
+      const code = getAbaCodeNumber(item)
+      if (Number.isFinite(code)) {
+        const existing = maxAbaByCountyRegion.get(countyRegion) || 0
+        if (code > existing) maxAbaByCountyRegion.set(countyRegion, code)
+      }
+    }
+  }
 
   const selected = selectedAbaCodes instanceof Set ? selectedAbaCodes : new Set()
   const hasAbaSelection = selected.size > 0
@@ -1136,8 +1166,12 @@ function updateCountyDots() {
     if (opt.isActive) continue
     if (!opt.countyRegion || !Number.isFinite(opt.lat) || !Number.isFinite(opt.lng)) continue
 
-    const summary = getCountySummary(opt.countyRegion, false)
+    const countyRegion = String(opt.countyRegion || '').toUpperCase()
+    const summary = stateFiltered ? null : getCountySummary(countyRegion, false)
     const rarityCount = (() => {
+      if (stateFiltered) {
+        return countsByCountyRegion.get(countyRegion) || 0
+      }
       if (!summary) return 0
       if (!hasAbaSelection || selectedCodes.length === 0) return summary?.rarityCount || 0
       return selectedCodes.reduce((sum, code) => sum + (summary.abaCounts.get(code) || 0), 0)
@@ -1149,6 +1183,10 @@ function updateCountyDots() {
     if (hasAbaSelection && selectedCodes.length > 0) {
       if (rarityCount <= 0) continue
       dotColor = DOT_ABA_COLORS[highestSelectedCode] || '#64748b'
+    } else if (stateFiltered) {
+      if (rarityCount <= 0) continue
+      const maxCode = maxAbaByCountyRegion.get(countyRegion) || null
+      dotColor = DOT_ABA_COLORS[maxCode] || '#64748b'
     } else if (summary) {
       // Pick color from highest ABA code present
       for (let code = 6; code >= 1; code--) {
@@ -1994,7 +2032,7 @@ function setNotablesUnavailableState(metaMessage, rowMessage, statusMessage = 'n
   notableCount.textContent = '0'
   notableMeta.textContent = metaMessage
   updateStatPills('—', '—', '—')
-  notableRows.innerHTML = `<tr><td colspan="7">${rowMessage}</td></tr>`
+  notableRows.innerHTML = `<tr><td colspan="8">${rowMessage}</td></tr>`
   setTableRenderStatus(statusMessage)
 }
 
@@ -2170,7 +2208,7 @@ function updateCountyLineColors() {
     })
   }
   if (countyOverlay) {
-    countyOverlay.setStyle({ color: 'transparent', weight: 0, fillColor: activeMaskFill, fillOpacity: 0.28, fillRule: 'evenodd' })
+    countyOverlay.setStyle({ color: 'transparent', weight: 0, fillColor: activeMaskFill, fillOpacity: 0.45, fillRule: 'evenodd' })
   }
   if (activeOutlineLayerRef) {
     activeOutlineLayerRef.setStyle({ color: activeStroke, weight: 1, fillOpacity: 0 })
@@ -2891,7 +2929,7 @@ function drawCountyOverlay(geojson) {
   if (!countyOverlay) {
     countyOverlay = L.geoJSON(null, {
       pane: 'countyMaskPane',
-      style: { color: 'transparent', weight: 0, fillColor: '#94a3b8', fillOpacity: 0.28, fillRule: 'evenodd' },
+      style: { color: 'transparent', weight: 0, fillColor: '#94a3b8', fillOpacity: 0.45, fillRule: 'evenodd' },
       interactive: false,
     }).addTo(map)
   }
@@ -3241,7 +3279,7 @@ function renderNotableTable(observations, countyName, regionCode, abaPillObserva
       : isStateRegion
         ? 'No notable observations found for this state.'
         : 'No notable observations found for this county.'
-    notableRows.innerHTML = `<tr><td colspan="7">${emptyMessage}</td></tr>`
+    notableRows.innerHTML = `<tr><td colspan="8">${emptyMessage}</td></tr>`
     setTableRenderStatus('table-empty')
     return
   }
@@ -3422,7 +3460,7 @@ function renderStateCountySummaryTable(observations, countyName, stateRegion, ab
     notableCount.className = 'badge ok'
     notableCount.textContent = '0'
     updateStatPills('0', '0', '0')
-    notableRows.innerHTML = `<tr><td colspan="7">No ${isUS ? 'state' : 'county'} summaries found for this region and filter set.</td></tr>`
+    notableRows.innerHTML = `<tr><td colspan="8">No ${isUS ? 'state' : 'county'} summaries found for this region and filter set.</td></tr>`
     currentTableData = []
     setTableRenderStatus('state-summary-empty')
     return
@@ -3450,6 +3488,7 @@ function renderStateCountySummaryTable(observations, countyName, stateRegion, ab
     tableRow.dataset.countyRegion = String(row.countyRegion || '').toUpperCase()
     tableRow.dataset.county = String(row.countyName || '')
     tableRow.innerHTML = `
+      <td class="col-code"></td>
       <td><div class="species-cell"><button type="button" class="county-summary-btn" data-county-region="${escapeHtml(row.countyRegion)}">${escapeHtml(row.countyName)}</button><span class="county-option-meta">${escapeHtml(formatCountySummary(row.summary))}</span></div></td>
       <td class="col-county"></td>
       <td class="col-date col-last">${lastBubble}</td>
@@ -3510,6 +3549,26 @@ function applySortAndRender() {
     const aLast = a.last?.getTime() ?? 0
     const bLast = b.last?.getTime() ?? 0
 
+    if (col === 'species') {
+      const aName = String(a.species || '')
+      const bName = String(b.species || '')
+      const cmp = aName.localeCompare(bName)
+      if (cmp !== 0) return dir === 'desc' ? -cmp : cmp
+      if (aCode !== bCode) return bCode - aCode
+      if (aLast !== bLast) return bLast - aLast
+      return String(a.county || '').localeCompare(String(b.county || ''))
+    }
+
+    if (col === 'county') {
+      const aCounty = String(a.county || '')
+      const bCounty = String(b.county || '')
+      const cmp = aCounty.localeCompare(bCounty)
+      if (cmp !== 0) return dir === 'desc' ? -cmp : cmp
+      if (aCode !== bCode) return bCode - aCode
+      if (aLast !== bLast) return bLast - aLast
+      return String(a.species || '').localeCompare(String(b.species || ''))
+    }
+
     if (col === 'distance') {
       const aDist = Number.isFinite(a.distanceKm) ? a.distanceKm : Infinity
       const bDist = Number.isFinite(b.distanceKm) ? b.distanceKm : Infinity
@@ -3520,7 +3579,7 @@ function applySortAndRender() {
       return String(a.species || '').localeCompare(String(b.species || ''))
     }
 
-    if (col === 'aba') {
+    if (col === 'code') {
       if (aCode !== bCode) return dir === 'desc' ? (bCode - aCode) : (aCode - bCode)
       if (aLast !== bLast) return bLast - aLast
       return String(a.species || '').localeCompare(String(b.species || ''))
@@ -3552,10 +3611,13 @@ function applySortAndRender() {
     const safeSpecies = escapeHtml(item.species)
     const safeCountyFull = escapeHtml(String(item.county || ''))
     const safeCountyShort = escapeHtml(shortCountyName(item.county))
+    const preferredCode = getPreferredCode(item)
+    const codeText = preferredCode >= 0 ? String(preferredCode) : '—'
     row.dataset.species = item.species
     row.dataset.county = String(item.county || '')
     row.dataset.countyRegion = String(item.countyRegion || '').toUpperCase()
     row.innerHTML = `
+      <td class="col-code">${escapeHtml(codeText)}</td>
       <td><div class="species-cell">${abaBadge}${yoloBadge}${statusBullets}<button type="button" class="species-btn" data-species="${safeSpecies}">${safeSpecies}</button></div></td>
       <td class="col-county"><span class="county-cell" title="${safeCountyFull}">${safeCountyShort}</span></td>
       <td class="col-date col-last">${lastBubble}</td>
@@ -3576,13 +3638,18 @@ function applySortAndRender() {
     else { toggleAll.indeterminate = true }
   }
   // Update sort icons
-  ;['thSpecies', 'thLast', 'thFirst'].forEach((id) => {
+  ;[
+    { id: 'thCode', col: 'code' },
+    { id: 'thSpecies', col: 'species' },
+    { id: 'thCounty', col: 'county' },
+    { id: 'thLast', col: 'last' },
+    { id: 'thFirst', col: 'first' },
+  ].forEach(({ id, col: mappedCol }) => {
     const th = document.querySelector(`#${id}`)
     if (!th) return
-    const colMap = { thSpecies: 'aba', thLast: 'last', thFirst: 'first' }
     const icon = th.querySelector('.sort-icon')
     if (!icon) return
-    if (colMap[id] === col) {
+    if (mappedCol === col) {
       icon.textContent = dir === 'desc' ? ' ↓' : ' ↑'
       th.classList.add('sort-active')
     } else {
@@ -4083,7 +4150,7 @@ async function loadCountyNotables(latitude, longitude, countyRegion = null, requ
   }
   if (!hadPreviousRows && !hasCachedWarm) {
     updateStatPills('…', '…', '…')
-    notableRows.innerHTML = '<tr><td colspan="7">Loading county notables…</td></tr>'
+    notableRows.innerHTML = '<tr><td colspan="8">Loading county notables…</td></tr>'
   }
 
   const loadingWatchdog = window.setTimeout(() => {
@@ -4106,7 +4173,7 @@ async function loadCountyNotables(latitude, longitude, countyRegion = null, requ
     notableCount.textContent = '0'
     notableMeta.textContent = 'County notables request timed out'
     updateStatPills('0', '0', '0')
-    notableRows.innerHTML = '<tr><td colspan="7">County notables request timed out. Try refresh or Use My Location again.</td></tr>'
+    notableRows.innerHTML = '<tr><td colspan="8">County notables request timed out. Try refresh or Use My Location again.</td></tr>'
     setTableRenderStatus('watchdog-timeout')
     markMapPartReady('observations')
   }, 9000)
@@ -4341,7 +4408,7 @@ async function loadCountyNotables(latitude, longitude, countyRegion = null, requ
     notableCount.textContent = '0'
     notableMeta.textContent = 'County notables currently unavailable'
     updateStatPills('0', '0', '0')
-    notableRows.innerHTML = '<tr><td colspan="7">No notable observations available right now.</td></tr>'
+    notableRows.innerHTML = '<tr><td colspan="8">No notable observations available right now.</td></tr>'
     setTableRenderStatus(`load-error err=${error?.message || 'unknown'}`)
     updateRuntimeLog()
   } finally {
@@ -4365,7 +4432,7 @@ async function loadCountyNotables(latitude, longitude, countyRegion = null, requ
       notableCount.textContent = '0'
       updateStatPills('0', '0', '0')
       notableMeta.textContent = 'County notables request did not complete'
-      notableRows.innerHTML = '<tr><td colspan="7">County notables request did not complete. Please try again.</td></tr>'
+      notableRows.innerHTML = '<tr><td colspan="8">County notables request did not complete. Please try again.</td></tr>'
       setTableRenderStatus('load-finalized-no-data')
     }
     markMapPartReady('observations')
@@ -4403,7 +4470,7 @@ async function loadStateNotables(stateRegion, requestId = null) {
   notableCount.textContent = 'Loading…'
   notableMeta.textContent = `Loading rarities for ${stateRegion}…`
   updateStatPills('…', '…', '…')
-  notableRows.innerHTML = '<tr><td colspan="7">Loading notables…</td></tr>'
+  notableRows.innerHTML = '<tr><td colspan="8">Loading notables…</td></tr>'
 
   try {
     const effectiveDaysBack = Math.max(1, Math.min(14, Number(filterDaysBack) || 7))
@@ -4452,7 +4519,7 @@ async function loadStateNotables(stateRegion, requestId = null) {
     notableMeta.textContent = `Error: ${error?.message || error}`
     updateStatPills('0', '0', '0')
     const safeErrorMessage = escapeHtml(error?.message || 'unknown error')
-    notableRows.innerHTML = `<tr><td colspan="7">Load failed: ${safeErrorMessage}.</td></tr>`
+    notableRows.innerHTML = `<tr><td colspan="8">Load failed: ${safeErrorMessage}.</td></tr>`
     setTableRenderStatus(`state-error: ${error?.message || ''}`)
     setMapLoading(false)
     markMapPartReady('observations')
@@ -4470,7 +4537,7 @@ async function loadNationalNotables(regionCode = US_REGION_CODE, abaMinFloor = 3
   notableCount.textContent = 'Loading…'
   notableMeta.textContent = `Loading rarities for ${normalizedRegion} (ABA ${effectiveAbaMin}+)…`
   updateStatPills('…', '…', '…')
-  notableRows.innerHTML = '<tr><td colspan="7">Loading US notables…</td></tr>'
+  notableRows.innerHTML = '<tr><td colspan="8">Loading US notables…</td></tr>'
 
   try {
     const observations = await fetchRegionRarities(normalizedRegion, filterDaysBack, 45000, { abaMin: effectiveAbaMin })
@@ -4511,7 +4578,7 @@ async function loadNationalNotables(regionCode = US_REGION_CODE, abaMinFloor = 3
     notableMeta.textContent = `Error: ${error?.message || error}`
     updateStatPills('0', '0', '0')
     const safeErrorMessage = escapeHtml(error?.message || 'unknown error')
-    notableRows.innerHTML = `<tr><td colspan="7">US load failed: ${safeErrorMessage}.</td></tr>`
+    notableRows.innerHTML = `<tr><td colspan="8">US load failed: ${safeErrorMessage}.</td></tr>`
     setTableRenderStatus(`us-error: ${error?.message || ''}`)
     setMapLoading(false)
     markMapPartReady('observations')
@@ -5120,14 +5187,14 @@ document.querySelector('.notable-table thead').addEventListener('click', (event)
     sortState.dir = sortState.dir === 'desc' ? 'asc' : 'desc'
   } else {
     sortState.col = col
-    sortState.dir = 'desc'
+    sortState.dir = (col === 'species' || col === 'county') ? 'asc' : 'desc'
   }
   applySortAndRender()
 })
 
 sortModeBtn?.addEventListener('click', () => {
   if (sortState.col === 'distance') {
-    sortState = { col: 'aba', dir: 'desc' }
+    sortState = { col: 'code', dir: 'desc' }
   } else {
     sortState = { col: 'distance', dir: 'asc' }
     ensureDistanceKmForCurrentTableData()
