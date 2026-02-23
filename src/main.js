@@ -2535,24 +2535,37 @@ function normalizeEbirdApiKey(value) {
 }
 
 function getStoredEbirdApiKey() {
-  try {
-    const raw = sessionStorage.getItem(EBIRD_API_KEY_STORAGE_KEY)
-    const key = normalizeEbirdApiKey(raw)
-    return key || null
-  } catch {
-    return null
+  const tryGet = (storage) => {
+    try {
+      const raw = storage?.getItem?.(EBIRD_API_KEY_STORAGE_KEY)
+      const key = normalizeEbirdApiKey(raw)
+      return key || null
+    } catch {
+      return null
+    }
   }
+
+  // Prefer localStorage so the key survives mobile tab suspends/reloads.
+  const localKey = tryGet(localStorage)
+  if (localKey) return localKey
+
+  // Backward-compat: older builds stored this in sessionStorage only.
+  const sessionKey = tryGet(sessionStorage)
+  if (sessionKey) {
+    try { localStorage?.setItem?.(EBIRD_API_KEY_STORAGE_KEY, sessionKey) } catch { /* ignore */ }
+    return sessionKey
+  }
+
+  return null
 }
 
 function setStoredEbirdApiKey(value) {
   const key = normalizeEbirdApiKey(value)
   if (!key) return false
-  try {
-    sessionStorage.setItem(EBIRD_API_KEY_STORAGE_KEY, key)
-    return true
-  } catch {
-    return false
-  }
+  let ok = false
+  try { localStorage.setItem(EBIRD_API_KEY_STORAGE_KEY, key); ok = true } catch { /* ignore */ }
+  try { sessionStorage.setItem(EBIRD_API_KEY_STORAGE_KEY, key); ok = true } catch { /* ignore */ }
+  return ok
 }
 
 function maybeSeedEbirdApiKeyFromUrl() {
