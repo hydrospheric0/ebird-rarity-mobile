@@ -4197,7 +4197,7 @@ function applySortAndRender() {
     row.innerHTML = `
       <td class="col-code"><div class="code-cell">${abaBadge}${yoloBadge}</div></td>
       <td><div class="species-cell">${statusBullets}<button type="button" class="species-btn" data-species="${safeSpecies}">${safeSpecies}</button></div></td>
-      <td class="col-county"><span class="county-cell" title="${safeCountyFull}">${safeCountyShort}</span></td>
+      <td class="col-county"><button type="button" class="county-cell county-cell-btn" data-county-region="${escapeHtml(String(item.countyRegion || '').toUpperCase())}" title="${safeCountyFull}">${safeCountyShort}</button></td>
       <td class="col-date col-last">${lastBubble}</td>
       <td class="col-reports">${countPill}</td>
       <td class="col-vis"><input type="checkbox" class="obs-vis-cb" data-species="${safeSpecies}" ${isChecked ? 'checked' : ''}></td>
@@ -4640,9 +4640,15 @@ function buildObservationPopupHtml(pt) {
   if (locationLink) metaParts.push(locationLink)
   const metaLine = metaParts.length ? `<div class="obs-popup-meta">${metaParts.join(' · ')}</div>` : ''
 
-  // Observation bullets: latest + oldest for focused species (or overall if no focus).
+  // Observation bullets: all observations from the past 7 days for focused
+  // species (or overall at this location if no focused species).
+  const sevenDayCutoff = cutoffDateForDaysBack(7)
   const focusNeedle = focusSpecies ? String(focusSpecies) : ''
   const focusObs = (focusNeedle ? locObsAll.filter((o) => String(o?.species || '') === focusNeedle) : locObsAll)
+    .filter((o) => {
+      const parsed = parseObsDate(o?.obsDt)
+      return Boolean(parsed && parsed >= sevenDayCutoff)
+    })
     .slice()
     .sort((a, b) => {
       const aMs = parseObsDate(a?.obsDt)?.getTime?.() ?? 0
@@ -4651,23 +4657,20 @@ function buildObservationPopupHtml(pt) {
       return String(a?.subId || '').localeCompare(String(b?.subId || ''))
     })
 
-  const latest = focusObs[0] || null
-  const oldest = focusObs.length > 1 ? focusObs[focusObs.length - 1] : null
-  const renderObsBullet = (prefix, o) => {
+  const renderObsBullet = (o) => {
     if (!o) return ''
-    const dt = formatObsDayMonthTime24(o?.obsDt)
+    const dt = formatObsDateTime(o?.obsDt)
     const sid = o?.subId ? String(o.subId) : ''
-    const code = sid ? escapeHtml(sid) : '—'
-    const codeHtml = sid
-      ? `<a href="https://ebird.org/checklist/${encodeURIComponent(sid)}" target="_blank" rel="noopener">${code}</a>`
-      : `<span>${code}</span>`
-    return `<li><span class="obs-popup-obs-prefix">${escapeHtml(prefix)}:</span> <span>${escapeHtml(dt)}</span> - ${codeHtml}</li>`
+    const listHtml = sid
+      ? `<a href="https://ebird.org/checklist/${encodeURIComponent(sid)}" target="_blank" rel="noopener">list</a>`
+      : '<span>list unavailable</span>'
+    return `<li><span>${escapeHtml(dt)}</span> · ${listHtml}</li>`
   }
 
-  const obsBullets = []
-  if (latest) obsBullets.push(renderObsBullet('Latest', latest))
-  if (oldest) obsBullets.push(renderObsBullet('Oldest', oldest))
-  const obsSection = obsBullets.length ? `<ul class="obs-popup-checklist">${obsBullets.join('')}</ul>` : ''
+  const obsBullets = focusObs.map((o) => renderObsBullet(o)).filter(Boolean)
+  const obsSection = obsBullets.length
+    ? `<ul class="obs-popup-checklist">${obsBullets.join('')}</ul>`
+    : '<ul class="obs-popup-checklist"><li>No observations in past 7 days.</li></ul>'
 
   // Other notable species at this location (even when in single-species view)
   const otherSpeciesSection = (() => {
@@ -6181,6 +6184,22 @@ notableRows.addEventListener('click', (event) => {
           activateCountyByRegion(rowCountyRegion, null, null, rowCountyName)
         }
       }
+    }
+    return
+  }
+
+  const countyCellBtn = event.target.closest('.county-cell-btn')
+  if (countyCellBtn) {
+    const row = countyCellBtn.closest('tr')
+    const rowCountyRegion = String(row?.dataset?.countyRegion || countyCellBtn.dataset.countyRegion || '').toUpperCase()
+    const rowCountyName = String(row?.dataset?.county || countyCellBtn.textContent || '').trim()
+    if (!isCountyRegionCode(rowCountyRegion)) return
+
+    const option = countyPickerOptions.find((opt) => String(opt.countyRegion || '').toUpperCase() === rowCountyRegion)
+    if (option) {
+      activateCountyFromOption(option)
+    } else {
+      activateCountyByRegion(rowCountyRegion, null, null, rowCountyName)
     }
     return
   }

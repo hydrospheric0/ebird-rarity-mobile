@@ -1250,7 +1250,7 @@ body.is-resizing {
 .sort-icon { font-size: 0.7em; opacity: 0.7; }
 
 .notable-table .col-species {
-  width: min(9.5rem, 38vw);
+  width: min(8.2rem, 32vw);
 }
 
 .notable-table .col-status {
@@ -1265,7 +1265,14 @@ body.is-resizing {
   text-align: center;
   white-space: nowrap;
   color: var(--muted);
+}
+
+.notable-table td.col-code {
   font-weight: 400;
+}
+
+.notable-table th.col-code {
+  font-weight: 700;
 }
 
 .code-cell {
@@ -1299,8 +1306,18 @@ body.is-resizing {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 0.7rem;
+  font-size: inherit;
   color: var(--muted);
+}
+
+.county-cell-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .notable-table .col-reports {
@@ -1360,7 +1377,7 @@ body.is-resizing {
   min-width: 1.05rem;
   padding: 0.08rem 0.32rem;
   border-radius: 999px;
-  font-size: 0.7rem;
+  font-size: inherit;
   font-weight: 500;
   line-height: 1;
   color: #ffffff;
@@ -1385,7 +1402,7 @@ body.is-resizing {
   padding: 0;
   margin: 0;
   font: inherit;
-  font-size: 0.73rem;
+  font-size: inherit;
   color: inherit;
   text-align: left;
   cursor: pointer;
@@ -1408,7 +1425,7 @@ tr.row-highlighted {
   display: inline-block;
   padding: 0px 3px;
   border-radius: 999px;
-  font-size: 0.66rem;
+  font-size: inherit;
   font-weight: 400;
   line-height: 1.45;
   border: 1px solid rgba(15, 23, 42, 0.2);
@@ -1722,7 +1739,7 @@ a.obs-popup-species {
   line-height: 1.15;
   gap: 0;
 }
-.th-two-line br { display: none; }
+.th-two-line br { display: block; }
 
 /* share-table-btn removed — share icon now lives in .aba-share-btn */
 
