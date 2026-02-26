@@ -2401,11 +2401,11 @@ function renderAbaStatPills(sorted) {
     })
     .join('')
   const labelHtml = '<span class="aba-pill-label" aria-hidden="true">ABA<br>code</span>'
-  const html = labelHtml + pillsHtml
 
-  if (topAbaPills) topAbaPills.innerHTML = html
-  if (pickerAbaPills) pickerAbaPills.innerHTML = html
-  if (statePickerAbaPills) statePickerAbaPills.innerHTML = html
+  // Label only belongs in the bottom bar; pickers get pills-only
+  if (topAbaPills) topAbaPills.innerHTML = labelHtml + pillsHtml
+  if (pickerAbaPills) pickerAbaPills.innerHTML = pillsHtml
+  if (statePickerAbaPills) statePickerAbaPills.innerHTML = pillsHtml
 }
 
 function setNotablesUnavailableState(metaMessage, rowMessage, statusMessage = 'notables-unavailable') {
@@ -4020,34 +4020,53 @@ function renderStateCountySummaryTable(observations, countyName, stateRegion, ab
 
 function buildShareText() {
   const meta = notableMeta?.textContent || ''
-  const rows = [...(notableRows?.querySelectorAll('tr[data-species], tr[data-county-region]') || [])]
-  if (!rows.length) return null
+  const activeRegion = String(currentCountyRegion || '').toUpperCase()
+  const days = Math.max(1, Math.min(14, Number(filterDaysBack) || 7))
+  const today = new Date()
+  const dateStr = today.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+  const header = `\uD83E\uDD85 eBird Rarities \u2014 ${meta} \u00B7 ${days}d \u00B7 ${dateStr}`
 
-  const lines = []
-  lines.push(`eBird Rarities \u2014 ${meta}`)
-  lines.push('')
+  // Detect county-summary rows (US or state summary mode): these have .county-summary-btn
+  const summaryTrs = [...(notableRows?.querySelectorAll('tr') || [])]
+    .filter((tr) => tr.querySelector('.county-summary-btn') != null)
 
-  // Determine if this is a county-summary view or a species view
-  const isCountySummary = rows[0]?.querySelector('.county-summary-btn') != null
-  if (isCountySummary) {
-    lines.push('County\tRarities\tLast Seen')
-    rows.forEach((tr) => {
-      const county = tr.querySelector('.county-summary-btn')?.textContent?.trim() || ''
-      const count = tr.querySelector('.count-pill')?.textContent?.trim() || ''
-      const last = tr.querySelector('.date-bubble')?.textContent?.trim() || ''
-      lines.push(`${county}\t${count}\t${last}`)
+  const speciesData = Array.isArray(currentTableData) ? currentTableData : []
+
+  if (!summaryTrs.length && !speciesData.length) return null
+
+  const lines = [header, '']
+
+  if (summaryTrs.length) {
+    // County / state summary table
+    summaryTrs.forEach((tr) => {
+      const regionCode = String(tr.dataset?.countyRegion || '').toUpperCase()
+      const name = tr.querySelector('.county-summary-btn')?.textContent?.trim() || regionCode
+      const count = tr.querySelector('.count-pill')?.textContent?.trim() || '—'
+      const last = tr.querySelector('.date-bubble')?.textContent?.trim() || '—'
+      lines.push(`${name}: ${count} · ${last}`)
+      if (regionCode) lines.push(`  https://ebird.org/region/${regionCode}`)
     })
+    if (activeRegion) {
+      lines.push('')
+      lines.push(`eBird: https://ebird.org/region/${activeRegion}`)
+    }
   } else {
-    lines.push('ABA\tSpecies\tCounty\tLast Seen\tReports')
-    rows.forEach((tr) => {
-      const aba = tr.querySelector('.aba-code-badge')?.textContent?.trim() || ''
-      const species = tr.querySelector('.species-btn')?.textContent?.trim() || ''
-      const county = tr.querySelector('.county-cell')?.textContent?.trim() || ''
-      const last = tr.querySelector('.date-bubble')?.textContent?.trim() || ''
-      const count = tr.querySelector('.count-pill')?.textContent?.trim() || ''
-      lines.push(`${aba}\t${species}\t${county}\t${last}\t${count}`)
+    // Species list
+    speciesData.forEach((row) => {
+      const aba = Number.isFinite(row.abaCode) ? row.abaCode : 'N'
+      const county = shortCountyName(row.county || '')
+      const last = row.last ? `${row.last.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` : '—'
+      const checkmark = row.confirmedAny ? '\u2713' : ''
+      const countStr = checkmark ? `${row.count}${checkmark}` : String(row.count)
+      lines.push(`[${aba}] ${row.species} \u00B7 ${county} \u00B7 ${last} (${countStr})`)
     })
+    const regionCode = String(currentActiveCountyCode || activeRegion || '').toUpperCase()
+    if (regionCode) {
+      lines.push('')
+      lines.push(`https://ebird.org/region/${regionCode}`)
+    }
   }
+
   return lines.join('\n')
 }
 
