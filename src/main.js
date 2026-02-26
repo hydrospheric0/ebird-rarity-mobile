@@ -52,8 +52,8 @@ app.innerHTML = `
         </div>
         <ul class="api-key-notes" aria-label="API key notes">
           <li>If you’re already signed in on eBird in this browser, that page should show your key. Paste it here to continue.</li>
-          <li>This key is only stored in your browser session and cannot be seen or read by others.</li>
-          <li>When your session expires/resets you have to enter it again.</li>
+          <li>This key is only stored locally on your device and cannot be seen or read by others.</li>
+          <li>It persists between sessions &mdash; you only need to enter it once per device.</li>
         </ul>
         <p id="apiKeyError" class="api-key-error" aria-live="polite"></p>
       </div>
@@ -139,12 +139,8 @@ app.innerHTML = `
             <div class="county-picker-title">ABA Codes</div>
             <div id="abaCodePickerList" class="county-picker-list" role="listbox" aria-label="ABA code list"></div>
           </div>
-          <span id="notableCount" style="display:none">—</span>
-          <p id="notableMeta" style="display:none"></p>
-          <button id="shareTableBtn" class="share-table-btn" type="button" hidden aria-label="Share list" title="Share visible list">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-            Share
-          </button>
+          <span id="notableCount" class="badge">—</span>
+          <p id="notableMeta" class="table-meta-label"></p>
           <div class="table-wrap">
             <table class="notable-table">
               <thead>
@@ -181,7 +177,10 @@ app.innerHTML = `
     </main>
 
     <div class="bottom-aba-bar" aria-label="ABA summary">
-      <div class="aba-filter-label">ABA code:</div>
+      <button id="shareTableBtn" class="aba-share-btn" type="button" hidden aria-label="Share list" title="Share visible list">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+      </button>
+      <div class="aba-filter-label"><span class="aba-label-two-line">ABA<br>code</span></div>
       <div id="topAbaPills" class="top-aba-pills" aria-label="ABA counts"></div>
     </div>
 
@@ -1723,14 +1722,16 @@ function toggleStatePicker() {
 function renderStatePickerOptions() {
   if (!statePickerList) return
   const activeState = stateRegionFromAnyRegion(currentCountyRegion) || 'US-CA'
-  statePickerList.innerHTML = LOWER_48_STATES
-    .map((state, index) => {
+  const usEntry = { code: US_REGION_CODE, name: 'United States — All' }
+  const allOptions = [usEntry, ...LOWER_48_STATES]
+  statePickerList.innerHTML = allOptions
+    .map((state) => {
       const abbrev = getStateAbbrevByRegion(state.code)
       const isActive = String(state.code).toUpperCase() === String(activeState).toUpperCase()
-      const summary = getStateSummary(state.code, isActive)
+      const summary = state.code === US_REGION_CODE ? null : getStateSummary(state.code, isActive)
       const pillsHtml = formatCountySummaryPills(summary, { includeTotal: false, includeNoCode: true })
-      const label = `${abbrev} · ${state.name}`
-      return `<button type="button" class="county-option${isActive ? ' is-active' : ''}" data-index="${index}" role="option" aria-selected="${isActive ? 'true' : 'false'}"><span class="county-option-name">${escapeHtml(label)}</span><span class="county-option-meta county-option-meta-pills">${pillsHtml}</span></button>`
+      const label = state.code === US_REGION_CODE ? state.name : `${abbrev} · ${state.name}`
+      return `<button type="button" class="county-option${isActive ? ' is-active' : ''}" data-code="${escapeHtml(state.code)}" role="option" aria-selected="${isActive ? 'true' : 'false'}"><span class="county-option-name">${escapeHtml(label)}</span><span class="county-option-meta county-option-meta-pills">${pillsHtml}</span></button>`
     })
     .join('')
 }
@@ -3954,9 +3955,10 @@ shareTableBtn?.addEventListener('click', async () => {
   }
   try {
     await navigator.clipboard.writeText(text)
-    const orig = shareTableBtn.textContent
-    shareTableBtn.textContent = '\u2713 Copied'
-    window.setTimeout(() => { shareTableBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg> Share' }, 2000)
+    shareTableBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>'
+    window.setTimeout(() => {
+      shareTableBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>'
+    }, 2000)
   } catch { /* clipboard blocked */ }
 })
 
@@ -5987,7 +5989,7 @@ abaCodePickerList?.addEventListener('click', (event) => {
 document.addEventListener('click', (event) => {
   const target = event.target
   if (!(target instanceof Node)) return
-  if (searchPopover && !searchPopover.hasAttribute('hidden') && !searchPopover.contains(target) && !menuSearchBtn.contains(target)) {
+  if (searchPopover && !searchPopover.hasAttribute('hidden') && !searchPopover.contains(target) && !(menuSearchBtn?.contains(target))) {
     searchPopover.setAttribute('hidden', 'hidden')
   }
   // Allow ABA bar clicks without dismissing open county/species/state pickers
