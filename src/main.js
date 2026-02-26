@@ -5635,7 +5635,6 @@ async function loadNeighborCounty(lat, lng, countyRegion, countyName) {
       map.setView([targetLat, targetLng], Math.max(map.getZoom(), explodeNow ? COUNTY_EXPLODE_ZOOM : 9), { animate: true })
     }
 
-    const label = countyContext?.countyLabel || countyName || ''
     await loadCountyNotables(targetLat, targetLng, resolvedCountyRegion, null, countySwitchRequestId, true)
   } catch (error) {
     console.error('loadNeighborCounty failed:', error)
@@ -6523,18 +6522,6 @@ function maybeStartStressTestRunner() {
 }
 
 maybeStartStressTestRunner()
-
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', async () => {
-    const registrations = await navigator.serviceWorker.getRegistrations()
-    await Promise.all(registrations.map((registration) => registration.unregister()))
-
-    if ('caches' in window) {
-      const keys = await caches.keys()
-      await Promise.all(keys.map((key) => caches.delete(key)))
-    }
-  })
-}
 
 window.addEventListener('error', (event) => {
   handleUnhandledUiFault('window-error', event?.error || new Error(event?.message || 'Unknown runtime error'))
