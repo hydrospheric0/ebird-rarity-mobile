@@ -9,7 +9,7 @@
   --border: rgba(15, 23, 42, 0.12);
   --map-strip-height: 40dvh;
   --bottom-select-height: 2.85rem;
-  --bottom-aba-height: 2.85rem;
+  --bottom-aba-height: 3.4rem;
   --bottom-menu-height: calc(var(--bottom-select-height) + var(--bottom-aba-height));
 }
 
@@ -694,7 +694,7 @@ body.is-resizing {
   border-top: 1px solid rgba(255, 255, 255, 0.18);
   z-index: 1290;
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 0.4rem;
   padding: 0 0.55rem;
@@ -703,26 +703,28 @@ body.is-resizing {
 .bottom-aba-bar .top-aba-pills {
   margin-left: 0;
   justify-content: flex-end;
+  gap: 0.3rem;
 }
 
-.aba-filter-label {
-  color: rgba(248, 250, 252, 0.92);
-  font-size: 0.68rem;
-  font-weight: 700;
-  white-space: nowrap;
-  line-height: 1;
+/* Label injected as first flex item inside the pills row — only shown in bottom bar */
+.aba-pill-label {
+  display: none;
 }
-
-.aba-label-two-line {
+.bottom-aba-bar .aba-pill-label {
   display: inline-flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
+  color: rgba(248, 250, 252, 0.85);
+  font-size: 0.72rem;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
-  gap: 0;
-  line-height: 1.2;
+  letter-spacing: 0.04em;
+  line-height: 1.25;
+  margin-right: 0.1rem;
+  white-space: nowrap;
 }
-.aba-label-two-line br { display: none; }
+.bottom-aba-bar .aba-pill-label br { display: block; }
 
 .aba-share-btn {
   display: inline-flex;
@@ -1075,7 +1077,7 @@ body.is-resizing {
 }
 
 .top-aba-pills .stat-aba-pill-badge {
-  min-width: 1.6rem;
+  min-width: 1.95rem;
 }
 
 
@@ -1161,7 +1163,7 @@ body.is-resizing {
 }
 
 .aba-pill-count {
-  font-size: 0.84rem;
+  font-size: 0.96rem;
   line-height: 1;
 }
 
@@ -1170,19 +1172,20 @@ body.is-resizing {
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  padding: 0.16rem 0.66rem;
+  padding: 0.2rem 0.78rem;
   color: #ffffff;
   border: 1px solid rgba(15, 23, 42, 0.15);
 }
 
 .stat-aba-pill-code {
-  font-size: 0.7rem;
+  font-size: 0.74rem;
   line-height: 1;
   font-weight: 700;
   color: #475569;
 }
 
 .bottom-aba-bar .stat-aba-pill-code {
+  font-size: 0.78rem;
   color: rgba(248, 250, 252, 0.92);
 }
 .stat-aba-pill.obs-stat-expanded {
@@ -1210,24 +1213,6 @@ body.is-resizing {
 .table-card .detail {
   padding-left: 0.55rem;
   padding-right: 0.55rem;
-}
-
-/* Count badge + meta row above table */
-#notableCount.badge {
-  margin: 0.35rem 0.55rem 0;
-  min-width: 0;
-}
-
-.table-meta-label {
-  margin: 0.15rem 0.55rem 0.3rem;
-  font-size: 0.72rem;
-  color: var(--muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.table-meta-label:empty {
-  display: none;
 }
 
 .notable-table {
@@ -1740,3 +1725,38 @@ a.obs-popup-species {
 .th-two-line br { display: none; }
 
 /* share-table-btn removed — share icon now lives in .aba-share-btn */
+
+/* ── US-mode state cluster markers ─────────────────────────────────── */
+.state-cluster-icon {
+  background: transparent !important;
+  border: none !important;
+}
+.state-cluster-marker {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.scm-abbrev {
+  font-size: 0.65rem;
+  font-weight: 800;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.75), 0 0 6px rgba(0, 0, 0, 0.5);
+  line-height: 1;
+  letter-spacing: 0.06em;
+}
+.scm-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.7rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+}

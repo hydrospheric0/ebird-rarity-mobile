@@ -139,8 +139,8 @@ app.innerHTML = `
             <div class="county-picker-title">ABA Codes</div>
             <div id="abaCodePickerList" class="county-picker-list" role="listbox" aria-label="ABA code list"></div>
           </div>
-          <span id="notableCount" class="badge">—</span>
-          <p id="notableMeta" class="table-meta-label"></p>
+          <span id="notableCount" style="display:none">—</span>
+          <p id="notableMeta" style="display:none"></p>
           <div class="table-wrap">
             <table class="notable-table">
               <thead>
@@ -180,7 +180,6 @@ app.innerHTML = `
       <button id="shareTableBtn" class="aba-share-btn" type="button" hidden aria-label="Share list" title="Share visible list">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
       </button>
-      <div class="aba-filter-label"><span class="aba-label-two-line">ABA<br>code</span></div>
       <div id="topAbaPills" class="top-aba-pills" aria-label="ABA counts"></div>
     </div>
 
@@ -446,6 +445,7 @@ let neighborLayerRef = null
 let activeOutlineLayerRef = null
 let countyNameLayerRef = null
 let countyDotLayerRef = null
+let stateMarkerLayerRef = null
 
 // Anchor used to sort county lists by distance from the user's current/last county.
 let lastCountyAnchorLat = null
@@ -627,6 +627,58 @@ const LOWER_48_STATES = [
   { code: 'US-WI', name: 'Wisconsin' },
   { code: 'US-WY', name: 'Wyoming' },
 ]
+
+// Approximate geographic centroids for map state markers
+const STATE_CENTERS = new Map([
+  ['US-AL', { lat: 32.8, lng: -86.8 }],
+  ['US-AZ', { lat: 34.3, lng: -111.1 }],
+  ['US-AR', { lat: 35.0, lng: -92.4 }],
+  ['US-CA', { lat: 37.2, lng: -119.5 }],
+  ['US-CO', { lat: 39.0, lng: -105.5 }],
+  ['US-CT', { lat: 41.6, lng: -72.7 }],
+  ['US-DE', { lat: 39.0, lng: -75.5 }],
+  ['US-FL', { lat: 28.1, lng: -82.4 }],
+  ['US-GA', { lat: 32.7, lng: -83.4 }],
+  ['US-ID', { lat: 44.4, lng: -114.6 }],
+  ['US-IL', { lat: 40.0, lng: -89.2 }],
+  ['US-IN', { lat: 40.3, lng: -86.1 }],
+  ['US-IA', { lat: 42.1, lng: -93.5 }],
+  ['US-KS', { lat: 38.5, lng: -98.4 }],
+  ['US-KY', { lat: 37.5, lng: -85.3 }],
+  ['US-LA', { lat: 31.1, lng: -91.9 }],
+  ['US-ME', { lat: 45.4, lng: -69.2 }],
+  ['US-MD', { lat: 39.1, lng: -76.8 }],
+  ['US-MA', { lat: 42.3, lng: -71.8 }],
+  ['US-MI', { lat: 44.3, lng: -85.4 }],
+  ['US-MN', { lat: 46.4, lng: -94.0 }],
+  ['US-MS', { lat: 32.7, lng: -89.7 }],
+  ['US-MO', { lat: 38.5, lng: -92.5 }],
+  ['US-MT', { lat: 47.0, lng: -110.0 }],
+  ['US-NE', { lat: 41.5, lng: -99.9 }],
+  ['US-NV', { lat: 39.3, lng: -116.6 }],
+  ['US-NH', { lat: 43.7, lng: -71.6 }],
+  ['US-NJ', { lat: 40.1, lng: -74.5 }],
+  ['US-NM', { lat: 34.5, lng: -106.1 }],
+  ['US-NY', { lat: 42.9, lng: -75.5 }],
+  ['US-NC', { lat: 35.6, lng: -79.4 }],
+  ['US-ND', { lat: 47.5, lng: -100.5 }],
+  ['US-OH', { lat: 40.4, lng: -82.7 }],
+  ['US-OK', { lat: 35.6, lng: -97.5 }],
+  ['US-OR', { lat: 44.1, lng: -120.5 }],
+  ['US-PA', { lat: 40.9, lng: -77.8 }],
+  ['US-RI', { lat: 41.7, lng: -71.5 }],
+  ['US-SC', { lat: 33.9, lng: -80.9 }],
+  ['US-SD', { lat: 44.4, lng: -100.3 }],
+  ['US-TN', { lat: 35.9, lng: -86.4 }],
+  ['US-TX', { lat: 31.5, lng: -99.3 }],
+  ['US-UT', { lat: 39.4, lng: -111.1 }],
+  ['US-VT', { lat: 44.0, lng: -72.7 }],
+  ['US-VA', { lat: 37.9, lng: -79.5 }],
+  ['US-WA', { lat: 47.4, lng: -120.5 }],
+  ['US-WV', { lat: 38.6, lng: -80.6 }],
+  ['US-WI', { lat: 44.6, lng: -90.0 }],
+  ['US-WY', { lat: 43.0, lng: -107.5 }],
+])
 
 function clearUiFailsafeTimer() {
   if (uiFailsafeTimer) {
@@ -872,6 +924,11 @@ function applyActiveFiltersAndRender(options = {}) {
       (currentActiveCountyCode || currentCountyRegion || '').toUpperCase(),
       fitToObservations
     )
+    if (isNationalSummaryMode) {
+      renderStateMarkersOnMap(filtered)
+    } else {
+      clearStateMarkers()
+    }
   }
   syncFilterPillUi()
   updateCountyDots()
@@ -1342,6 +1399,58 @@ function renderCountyPickerOptions() {
 // ABA dot colors matching canvas overlay palette
 const DOT_ABA_COLORS = {
   1: '#067bc2', 2: '#84bcda', 3: '#ecc30b', 4: '#f37748', 5: '#ED1313',
+}
+
+function clearStateMarkers() {
+  if (stateMarkerLayerRef) stateMarkerLayerRef.clearLayers()
+}
+
+function renderStateMarkersOnMap(observations) {
+  if (!map) return
+  initializeMap()
+  if (!stateMarkerLayerRef) {
+    stateMarkerLayerRef = L.layerGroup({ pane: 'countyDotPane' }).addTo(map)
+  }
+  stateMarkerLayerRef.clearLayers()
+  if (!Array.isArray(observations) || observations.length === 0) return
+
+  // Count unique species×county per state, ABA≥3 only
+  const stateBuckets = new Map() // stateCode → { count, maxAba }
+  const seen = new Map()         // stateCode → Set(key)
+  for (const item of observations) {
+    const stateCode = String(item?.subnational1Code || '').toUpperCase()
+    if (!stateCode) continue
+    const code = getAbaCodeNumber(item)
+    if (!Number.isFinite(code) || code < 3) continue
+    const species = String(item?.comName || '')
+    const countyRegion = String(item?.subnational2Code || '').toUpperCase()
+    const key = `${species}\u001f${countyRegion}`
+    if (!seen.has(stateCode)) seen.set(stateCode, new Set())
+    if (seen.get(stateCode).has(key)) continue
+    seen.get(stateCode).add(key)
+    const b = stateBuckets.get(stateCode) || { count: 0, maxAba: 0 }
+    b.count += 1
+    if (code > b.maxAba) b.maxAba = code
+    stateBuckets.set(stateCode, b)
+  }
+
+  for (const [stateCode, { count, maxAba }] of stateBuckets.entries()) {
+    const center = STATE_CENTERS.get(stateCode)
+    if (!center) continue
+    const abbrev = getStateAbbrevByRegion(stateCode)
+    const dotColor = DOT_ABA_COLORS[maxAba] || '#64748b'
+    const html = `<div class="state-cluster-marker"><span class="scm-abbrev">${abbrev}</span><span class="scm-count" style="background:${dotColor}">${count}</span></div>`
+    const marker = L.marker([center.lat, center.lng], {
+      pane: 'countyDotPane',
+      icon: L.divIcon({ className: 'state-cluster-icon', html, iconSize: [52, 36], iconAnchor: [26, 18] }),
+      interactive: true,
+    })
+    marker.on('click', (e) => {
+      if (e?.originalEvent) { L.DomEvent.stopPropagation(e.originalEvent); L.DomEvent.preventDefault(e.originalEvent) }
+      void activateStateByRegion(stateCode)
+    })
+    stateMarkerLayerRef.addLayer(marker)
+  }
 }
 
 function updateCountyDots() {
@@ -2281,7 +2390,7 @@ function renderAbaStatPills(sorted) {
   // In US mode codes 0 (N), 1, 2 are locked out — only 3/4/5 available
   const lockedInUsMode = new Set([0, 1, 2])
   const orderedCodes = [0, 1, 2, 3, 4, 5]
-  const html = orderedCodes
+  const pillsHtml = orderedCodes
     .map((c) => {
       const count = counts.get(c) || 0
       const isActive = selectedAbaCodes instanceof Set && selectedAbaCodes.has(c)
@@ -2291,6 +2400,8 @@ function renderAbaStatPills(sorted) {
       return `<button type="button" class="stat-aba-pill${isActive ? ' is-active' : ''}${isDisabled ? ' is-locked' : ''}" data-code="${c}" ${isDisabled ? 'disabled aria-disabled="true"' : ''} aria-pressed="${isActive ? 'true' : 'false'}" title="Toggle ABA ${label} filter"><span class="stat-aba-pill-badge ${badgeClass}"><span class="aba-pill-count">${count}</span></span><span class="stat-aba-pill-code" aria-hidden="true">${label}</span></button>`
     })
     .join('')
+  const labelHtml = '<span class="aba-pill-label" aria-hidden="true">ABA<br>code</span>'
+  const html = labelHtml + pillsHtml
 
   if (topAbaPills) topAbaPills.innerHTML = html
   if (pickerAbaPills) pickerAbaPills.innerHTML = html
@@ -5324,6 +5435,7 @@ async function loadStateNotables(stateRegion, requestId = null) {
   notableMeta.textContent = `Loading rarities for ${stateRegion}…`
   updateStatPills('…', '…', '…')
   notableRows.innerHTML = '<tr><td colspan="7">Loading notables…</td></tr>'
+  clearStateMarkers()
 
   try {
     const effectiveDaysBack = Math.max(1, Math.min(14, Number(filterDaysBack) || 7))
@@ -5412,6 +5524,7 @@ async function loadNationalNotables(regionCode = US_REGION_CODE, abaMinFloor = 3
     if (activeOutlineLayerRef) activeOutlineLayerRef.clearLayers()
     if (countyNameLayerRef) countyNameLayerRef.clearLayers()
     if (countyDotLayerRef) countyDotLayerRef.clearLayers()
+    clearStateMarkers()
 
     markMapPartReady('activeCounty')
     markMapPartReady('stateMask')
@@ -5442,6 +5555,7 @@ async function loadNeighborCounty(lat, lng, countyRegion, countyName) {
   const explodeNow = Boolean(explodeClustersOnNextCountySwitch)
   explodeClustersOnNextCountySwitch = false
   if (explodeNow) mapFitMaxZoomOnce = COUNTY_EXPLODE_ZOOM
+  clearStateMarkers()
 
   const normalizedCountyRegion = countyRegion ? String(countyRegion).toUpperCase() : null
   // Avoid Number(null) => 0 (which would incorrectly send us to 0,0).
