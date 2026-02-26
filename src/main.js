@@ -89,7 +89,7 @@ app.innerHTML = `
         </div>
         <div class="filter-group">
           <label for="filterAbaMin" class="filter-label">ABA Code ≥ <span id="filterAbaMinValue">1</span></label>
-          <input id="filterAbaMin" class="filter-slider" type="range" min="1" max="6" value="1" step="1">
+          <input id="filterAbaMin" class="filter-slider" type="range" min="1" max="5" value="1" step="1">
         </div>
       </section>
     </header>
@@ -248,7 +248,7 @@ app.innerHTML = `
         </label>
         <label class="menu-popover-field" for="searchAbaMinInput">
           <span>ABA Code ≥ <span id="searchAbaMinValue">1</span></span>
-          <input id="searchAbaMinInput" class="filter-slider" type="range" min="1" max="6" value="1" step="1" aria-label="Search ABA minimum">
+          <input id="searchAbaMinInput" class="filter-slider" type="range" min="1" max="5" value="1" step="1" aria-label="Search ABA minimum">
         </label>
         <label class="menu-popover-field" for="searchDaysBackInput">
           <span>Days Back: <span id="searchDaysBackValue">7</span></span>
@@ -856,7 +856,7 @@ function applyActiveFiltersAndRender(options = {}) {
   const cutoff = cutoffDateForDaysBack(filterDaysBack)
   const activeRegion = String(currentCountyRegion || '').toUpperCase()
   const abaFloor = activeRegion === US_REGION_CODE ? 3 : 1
-  const abaMin = Math.max(abaFloor, Number(filterAbaMin) || abaFloor)
+  const abaMin = Math.min(5, Math.max(abaFloor, Number(filterAbaMin) || abaFloor))
   if (filterAbaMin !== abaMin) {
     filterAbaMin = abaMin
     if (filterAbaMinInput) filterAbaMinInput.value = String(filterAbaMin)
@@ -1034,7 +1034,7 @@ function updateFilterUi() {
 
 function getEffectiveSearchAbaMin(regionCode, requestedAbaMin) {
   const normalizedRegion = String(regionCode || '').toUpperCase()
-  const requested = Math.max(1, Math.min(6, Number(requestedAbaMin) || 1))
+  const requested = Math.max(1, Math.min(5, Number(requestedAbaMin) || 1))
   if (normalizedRegion === US_REGION_CODE) return Math.max(3, requested)
   return requested
 }
@@ -1045,6 +1045,7 @@ function syncSearchSlidersForRegion(regionCode) {
   const isUsRegion = normalizedRegion === US_REGION_CODE
 
   searchAbaMinInput.min = isUsRegion ? '3' : '1'
+  searchAbaMinInput.max = '5'
   const currentAba = Number(searchAbaMinInput.value || filterAbaMin || 1)
   const effectiveAba = getEffectiveSearchAbaMin(normalizedRegion, currentAba)
   searchAbaMinInput.value = String(effectiveAba)
@@ -1849,7 +1850,6 @@ async function activateStateByRegion(stateRegion) {
   const normalized = String(stateRegion || '').toUpperCase()
   if (normalized === US_REGION_CODE) {
     // US-wide mode: default to ABA 3/4/5 only
-    selectedAbaCodes = new Set([3, 4, 5])
     resetFiltersForCountySwitch()
     selectedAbaCodes = new Set([3, 4, 5])
     refreshHeaderStateOptions()
@@ -3845,7 +3845,6 @@ function renderNotableTable(observations, countyName, regionCode, abaPillObserva
 
   notableCount.className = 'badge ok'
   notableCount.textContent = String(sorted.length)
-  if (shareTableBtn) { shareTableBtn.hidden = false; shareTableBtn.style.display = '' }
   const confirmedCount = sorted.filter((r) => r.confirmedAny).length
   updateStatPills(sorted.length, confirmedCount, sorted.length - confirmedCount)
   renderAbaStatPills(Array.from(abaPillGrouped.values()))
@@ -3985,7 +3984,6 @@ function renderStateCountySummaryTable(observations, countyName, stateRegion, ab
 
   notableCount.className = 'badge ok'
   notableCount.textContent = String(stateRows.length)
-  if (shareTableBtn) { shareTableBtn.hidden = false; shareTableBtn.style.display = '' }
   updateStatPills(totalRarities, confirmedRarities, pendingRarities)
 
   const fragment = document.createDocumentFragment()
@@ -5523,8 +5521,9 @@ async function loadNationalNotables(regionCode = US_REGION_CODE, abaMinFloor = 3
   updateStatPills('…', '…', '…')
   notableRows.innerHTML = '<tr><td colspan="7">Loading US notables…</td></tr>'
 
+  const effectiveDaysBack = Math.max(1, Math.min(14, Number(filterDaysBack) || 7))
   try {
-    const observations = await fetchRegionRarities(normalizedRegion, filterDaysBack, 45000, { abaMin: effectiveAbaMin })
+    const observations = await fetchRegionRarities(normalizedRegion, effectiveDaysBack, 45000, { abaMin: effectiveAbaMin })
     if (isStaleNotablesLoad(notablesLoadId, requestId)) return
 
     currentRawObservations = Array.isArray(observations) ? observations : []
@@ -5856,7 +5855,7 @@ filterDaysBackInput?.addEventListener('input', (event) => {
   applyActiveFiltersAndRender({ fitToObservations: true })
 })
 filterAbaMinInput?.addEventListener('input', (event) => {
-  filterAbaMin = Number(event.target.value) || 1
+  filterAbaMin = Math.max(1, Math.min(5, Number(event.target.value) || 1))
   updateFilterUi()
   applyActiveFiltersAndRender()
 })
