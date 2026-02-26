@@ -268,6 +268,37 @@ body {
   font-size: 0.85rem;
 }
 
+.loc-perm-intro {
+  margin: 0 0 0.75rem;
+  color: rgba(226, 232, 240, 0.88);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.loc-perm-step-title {
+  margin: 0 0 0.35rem;
+  color: rgba(226, 232, 240, 0.7);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.loc-perm-decline-btn {
+  background: transparent;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  color: rgba(226, 232, 240, 0.7);
+  font-size: 0.82rem;
+  padding: 0.5rem 0.85rem;
+  border-radius: 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.loc-perm-decline-btn:active {
+  opacity: 0.75;
+}
+
 .app-main {
   padding: 0 0 calc(env(safe-area-inset-bottom) + var(--bottom-menu-height));
   display: grid;
@@ -1209,9 +1240,8 @@ body.is-resizing {
   width: 2.3rem;
 }
 
-/* Keep a small visual gap between Last/First date bubbles in tight layouts */
+/* Extra right padding on Last so the bubble doesn't crowd the next column */
 .notable-table td.col-last { padding-right: 0.34rem; }
-.notable-table td.col-first { padding-left: 0.34rem; }
 
 .notable-table .col-county {
   width: min(3.2rem, 16vw);
@@ -1229,9 +1259,53 @@ body.is-resizing {
 }
 
 .notable-table .col-reports {
+  position: relative;
   text-align: right;
   width: 1.35rem;
   padding-right: 0.2rem;
+}
+
+.col-reports-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-size: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: underline dotted rgba(100, 116, 139, 0.6);
+  text-underline-offset: 2px;
+}
+
+.reports-help-popover {
+  position: fixed;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 0.55rem;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.18);
+  padding: 0.55rem 0.7rem;
+  z-index: 1300;
+  width: max-content;
+  min-width: 10.5rem;
+  text-align: left;
+}
+
+.reports-help-title {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted);
+  margin: 0 0 0.4rem 0;
+  white-space: nowrap;
+}
+
+.reports-help-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.73rem;
+  color: var(--text);
+  margin-top: 0.28rem;
 }
 
 .count-pill {
@@ -1321,9 +1395,9 @@ tr.row-highlighted {
 }
 
 .date-bubble-red-new {
-  background: rgba(237, 19, 19, 0.14);
-  border-color: rgba(237, 19, 19, 0.35);
-  color: #7f1d1d;
+  background: #dc2626;
+  border-color: #b91c1c;
+  color: #ffffff;
 }
 
 .status-dot {

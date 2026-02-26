@@ -14,6 +14,22 @@ const app = document.querySelector('#app')
 
 app.innerHTML = `
   <div id="appShell" class="app-shell">
+    <div id="locPermGate" class="api-key-gate" hidden>
+      <div class="api-key-card" role="dialog" aria-modal="true" aria-labelledby="locPermTitle">
+        <h2 id="locPermTitle">Location needed</h2>
+        <p class="loc-perm-intro">This app works best when you allow it to see your location, so it can load nearby county rarities automatically.</p>
+        <p class="loc-perm-step-title">To enable on iOS Safari:</p>
+        <ol class="api-key-notes">
+          <li><strong>Settings &rsaquo; Privacy &amp; Security &rsaquo; Location Services</strong> &mdash; set to <strong>On</strong></li>
+          <li>Scroll down to <strong>Safari</strong> (or your Home Screen app icon) &rarr; select <strong>While Using the App</strong></li>
+          <li>Enable <strong>Precise Location</strong></li>
+        </ol>
+        <div class="api-key-actions">
+          <button id="locPermRetryBtn" class="primary" type="button">Retry location</button>
+          <button id="locPermDeclineBtn" class="menu-btn loc-perm-decline-btn" type="button">Decline &mdash; show California</button>
+        </div>
+      </div>
+    </div>
     <div id="apiKeyGate" class="api-key-gate" hidden>
       <div class="api-key-card" role="dialog" aria-modal="true" aria-labelledby="apiKeyTitle">
         <button id="apiKeyCloseBtn" class="api-key-close-btn" type="button" aria-label="Close" title="Close">×</button>
@@ -133,8 +149,14 @@ app.innerHTML = `
                   <th class="col-species sortable" id="thSpecies" data-sort="species">Species<span class="sort-icon" aria-hidden="true"></span></th>
                   <th class="col-county sortable" id="thCounty" data-sort="county">County<span class="sort-icon" aria-hidden="true"></span></th>
                   <th class="col-date sortable" id="thLast" data-sort="last">Last<span class="sort-icon" aria-hidden="true"></span></th>
-                  <th class="col-date sortable" id="thFirst" data-sort="first">First<span class="sort-icon" aria-hidden="true"></span></th>
-                  <th class="col-reports">#</th>
+                  <th class="col-reports" id="thReports">
+                    <button id="reportsHelpBtn" class="col-reports-btn" type="button" aria-label="About report counts" aria-expanded="false">#</button>
+                    <div id="reportsHelpPopover" class="reports-help-popover" hidden>
+                      <p class="reports-help-title">Number of reports</p>
+                      <div class="reports-help-row"><span class="count-pill count-pill-confirmed">3</span><span>Confirmed</span></div>
+                      <div class="reports-help-row"><span class="count-pill count-pill-pending">2</span><span>Unconfirmed</span></div>
+                    </div>
+                  </th>
                   <th class="col-vis"><input type="checkbox" id="toggleAllVis" title="Show / hide all" checked></th>
                   <th class="col-pin"></th>
                 </tr>
@@ -294,9 +316,13 @@ const apiKeySaveBtn = document.querySelector('#apiKeySaveBtn')
 const apiKeyOpenBtn = document.querySelector('#apiKeyOpenBtn')
 const apiKeyCloseBtn = document.querySelector('#apiKeyCloseBtn')
 const apiKeyError = document.querySelector('#apiKeyError')
+const locPermGate = document.querySelector('#locPermGate')
+const locPermRetryBtn = document.querySelector('#locPermRetryBtn')
+const locPermDeclineBtn = document.querySelector('#locPermDeclineBtn')
 const notableCount = document.querySelector('#notableCount')
 const notableMeta = document.querySelector('#notableMeta')
 const topAbaPills = document.querySelector('#topAbaPills')
+const bottomAbaBar = document.querySelector('.bottom-aba-bar')
 const countyPicker = document.querySelector('#countyPicker')
 const countyPickerList = document.querySelector('#countyPickerList')
 const pickerAbaPills = document.querySelector('#pickerAbaPills')
@@ -437,7 +463,7 @@ let lastUserLat = null
 let lastUserLng = null
 let currentTableData = [] // all rows for re-sorting
 let lastTableObservationSource = []
-let sortState = { col: 'code', dir: 'desc' } // col: 'code'|'species'|'county'|'last'|'first'|'distance', dir: 'asc'|'desc'
+let sortState = { col: 'code', dir: 'desc' } // col: 'code'|'species'|'county'|'last'|'distance', dir: 'asc'|'desc'
 let activeSortCountyRegion = YOLO_COUNTY_REGION
 let pinnedSpecies = null
 let preservePinnedSpeciesOnce = false
@@ -639,7 +665,7 @@ function armUiFailsafeTimer() {
         notableCount.textContent = '0'
       }
       if (notableMeta) notableMeta.textContent = 'Recovered from a stuck loading state'
-      if (notableRows) notableRows.innerHTML = '<tr><td colspan="8">A stuck loading operation was reset. Try your action again.</td></tr>'
+      if (notableRows) notableRows.innerHTML = '<tr><td colspan="7">A stuck loading operation was reset. Try your action again.</td></tr>'
       updateStatPills('0', '0', '0')
       setTableRenderStatus('failsafe-watchdog-reset')
     }
@@ -2252,7 +2278,7 @@ function setNotablesUnavailableState(metaMessage, rowMessage, statusMessage = 'n
   notableCount.textContent = '0'
   notableMeta.textContent = metaMessage
   updateStatPills('—', '—', '—')
-  notableRows.innerHTML = `<tr><td colspan="8">${rowMessage}</td></tr>`
+  notableRows.innerHTML = `<tr><td colspan="7">${rowMessage}</td></tr>`
   setTableRenderStatus(statusMessage)
 }
 
@@ -3433,14 +3459,15 @@ function dayOffsetFromToday(date) {
 }
 
 function getDateBubbleClass(kind, firstDate, lastDate) {
-  const targetDate = kind === 'first' ? firstDate : lastDate
   const firstOffset = dayOffsetFromToday(firstDate)
   const lastOffset = dayOffsetFromToday(lastDate)
-  if (firstOffset === 0 && lastOffset === 0) return 'date-bubble-red-new'
-  const offset = dayOffsetFromToday(targetDate)
-  if (offset === 0) return 'date-bubble-green-dark'
-  if (offset === 1) return 'date-bubble-green-light'
-  if (offset === 2) return 'date-bubble-yellow'
+  // Red: this species was first recorded today — brand new find in the window
+  if (firstOffset === 0) return 'date-bubble-red-new'
+  // Light green: last seen yesterday
+  if (lastOffset === 1) return 'date-bubble-green-light'
+  // Dark green: last seen today (returning sighting) or 2–14 days ago
+  if (lastOffset !== null && lastOffset >= 0 && lastOffset <= 14) return 'date-bubble-green-dark'
+  // Colorless: not seen in the past 14 days (or date unknown)
   return 'date-bubble-neutral'
 }
 
@@ -3618,7 +3645,7 @@ function renderNotableTable(observations, countyName, regionCode, abaPillObserva
       : isStateRegion
         ? 'No notable observations found for this state.'
         : 'No notable observations found for this county.'
-    notableRows.innerHTML = `<tr><td colspan="8">${emptyMessage}</td></tr>`
+    notableRows.innerHTML = `<tr><td colspan="7">${emptyMessage}</td></tr>`
     setTableRenderStatus('table-empty')
     return
   }
@@ -3809,7 +3836,7 @@ function renderStateCountySummaryTable(observations, countyName, stateRegion, ab
     notableCount.className = 'badge ok'
     notableCount.textContent = '0'
     updateStatPills('0', '0', '0')
-    notableRows.innerHTML = `<tr><td colspan="8">No ${isUS ? 'state' : 'county'} summaries found for this region and filter set.</td></tr>`
+    notableRows.innerHTML = `<tr><td colspan="7">No ${isUS ? 'state' : 'county'} summaries found for this region and filter set.</td></tr>`
     currentTableData = []
     setTableRenderStatus('state-summary-empty')
     return
@@ -3826,7 +3853,6 @@ function renderStateCountySummaryTable(observations, countyName, stateRegion, ab
   const fragment = document.createDocumentFragment()
   stateRows.forEach((row) => {
     const lastBubble = renderDateBubble(formatShortDate(row.last), getDateBubbleClass('last', row.first, row.last))
-    const firstBubble = renderDateBubble(formatShortDate(row.first), getDateBubbleClass('first', row.first, row.last))
     const isConfirmed = row.confirmedCount > 0
     const countPill = `<span class="count-pill ${isConfirmed ? 'count-pill-confirmed' : 'count-pill-pending'}" title="${isConfirmed ? 'Confirmed' : 'Pending'}">${row.rarityCount}</span>`
     const pinHtml = (row.lat != null && row.lng != null)
@@ -3841,7 +3867,6 @@ function renderStateCountySummaryTable(observations, countyName, stateRegion, ab
       <td><div class="species-cell"><button type="button" class="county-summary-btn" data-county-region="${escapeHtml(row.countyRegion)}">${escapeHtml(row.countyName)}</button><span class="county-option-meta">${escapeHtml(formatCountySummary(row.summary))}</span></div></td>
       <td class="col-county"></td>
       <td class="col-date col-last">${lastBubble}</td>
-      <td class="col-date col-first">${firstBubble}</td>
       <td class="col-reports">${countPill}</td>
       <td class="col-vis"></td>
       <td class="col-pin">${pinHtml}</td>
@@ -3931,8 +3956,8 @@ function applySortAndRender() {
       return String(a.species || '').localeCompare(String(b.species || ''))
     }
 
-    const aDate = (col === 'last' ? a.last : a.first)?.getTime() ?? 0
-    const bDate = (col === 'last' ? b.last : b.first)?.getTime() ?? 0
+    const aDate = a.last?.getTime() ?? 0
+    const bDate = b.last?.getTime() ?? 0
     if (aDate !== bDate) return dir === 'desc' ? (bDate - aDate) : (aDate - bDate)
 
     // Tiebreakers: ABA desc, then Last desc
@@ -3943,7 +3968,6 @@ function applySortAndRender() {
   const fragment = document.createDocumentFragment()
   data.forEach((item) => {
     const lastBubble = renderDateBubble(formatShortDate(item.last), getDateBubbleClass('last', item.first, item.last))
-    const firstBubble = renderDateBubble(formatShortDate(item.first), getDateBubbleClass('first', item.first, item.last))
     const abaBadge = renderAbaCodeBadge(item.abaCode)
     const yoloBadge = isYoloCountyView ? renderYoloCodeBadge(item.species, item.abaCode) : ''
     const statusBullets = isYoloCountyView ? renderSpeciesStatusBullets(item.species) : ''
@@ -3965,7 +3989,6 @@ function applySortAndRender() {
       <td><div class="species-cell">${statusBullets}<button type="button" class="species-btn" data-species="${safeSpecies}">${safeSpecies}</button></div></td>
       <td class="col-county"><span class="county-cell" title="${safeCountyFull}">${safeCountyShort}</span></td>
       <td class="col-date col-last">${lastBubble}</td>
-      <td class="col-date col-first">${firstBubble}</td>
       <td class="col-reports">${countPill}</td>
       <td class="col-vis"><input type="checkbox" class="obs-vis-cb" data-species="${safeSpecies}" ${isChecked ? 'checked' : ''}></td>
       <td class="col-pin">${pinHtml}</td>
@@ -3987,7 +4010,6 @@ function applySortAndRender() {
     { id: 'thSpecies', col: 'species' },
     { id: 'thCounty', col: 'county' },
     { id: 'thLast', col: 'last' },
-    { id: 'thFirst', col: 'first' },
   ].forEach(({ id, col: mappedCol }) => {
     const th = document.querySelector(`#${id}`)
     if (!th) return
@@ -4895,7 +4917,7 @@ async function loadCountyNotables(latitude, longitude, countyRegion = null, requ
   }
   if (!hadPreviousRows && !hasCachedWarm) {
     updateStatPills('…', '…', '…')
-    notableRows.innerHTML = '<tr><td colspan="8">Loading county notables…</td></tr>'
+    notableRows.innerHTML = '<tr><td colspan="7">Loading county notables…</td></tr>'
   }
 
   const loadingWatchdog = window.setTimeout(() => {
@@ -4918,7 +4940,7 @@ async function loadCountyNotables(latitude, longitude, countyRegion = null, requ
     notableCount.textContent = '0'
     notableMeta.textContent = 'County notables request timed out'
     updateStatPills('0', '0', '0')
-    notableRows.innerHTML = '<tr><td colspan="8">County notables request timed out. Try refresh or Use My Location again.</td></tr>'
+    notableRows.innerHTML = '<tr><td colspan="7">County notables request timed out. Try refresh or Use My Location again.</td></tr>'
     setTableRenderStatus('watchdog-timeout')
     markMapPartReady('observations')
   }, 9000)
@@ -5157,7 +5179,7 @@ async function loadCountyNotables(latitude, longitude, countyRegion = null, requ
     notableCount.textContent = '0'
     notableMeta.textContent = 'County notables currently unavailable'
     updateStatPills('0', '0', '0')
-    notableRows.innerHTML = '<tr><td colspan="8">No notable observations available right now.</td></tr>'
+    notableRows.innerHTML = '<tr><td colspan="7">No notable observations available right now.</td></tr>'
     setTableRenderStatus(`load-error err=${error?.message || 'unknown'}`)
     updateRuntimeLog()
   } finally {
@@ -5181,7 +5203,7 @@ async function loadCountyNotables(latitude, longitude, countyRegion = null, requ
       notableCount.textContent = '0'
       updateStatPills('0', '0', '0')
       notableMeta.textContent = 'County notables request did not complete'
-      notableRows.innerHTML = '<tr><td colspan="8">County notables request did not complete. Please try again.</td></tr>'
+      notableRows.innerHTML = '<tr><td colspan="7">County notables request did not complete. Please try again.</td></tr>'
       setTableRenderStatus('load-finalized-no-data')
     }
     markMapPartReady('observations')
@@ -5219,7 +5241,7 @@ async function loadStateNotables(stateRegion, requestId = null) {
   notableCount.textContent = 'Loading…'
   notableMeta.textContent = `Loading rarities for ${stateRegion}…`
   updateStatPills('…', '…', '…')
-  notableRows.innerHTML = '<tr><td colspan="8">Loading notables…</td></tr>'
+  notableRows.innerHTML = '<tr><td colspan="7">Loading notables…</td></tr>'
 
   try {
     const effectiveDaysBack = Math.max(1, Math.min(14, Number(filterDaysBack) || 7))
@@ -5268,7 +5290,7 @@ async function loadStateNotables(stateRegion, requestId = null) {
     notableMeta.textContent = `Error: ${error?.message || error}`
     updateStatPills('0', '0', '0')
     const safeErrorMessage = escapeHtml(error?.message || 'unknown error')
-    notableRows.innerHTML = `<tr><td colspan="8">Load failed: ${safeErrorMessage}.</td></tr>`
+    notableRows.innerHTML = `<tr><td colspan="7">Load failed: ${safeErrorMessage}.</td></tr>`
     setTableRenderStatus(`state-error: ${error?.message || ''}`)
     setMapLoading(false)
     markMapPartReady('observations')
@@ -5286,7 +5308,7 @@ async function loadNationalNotables(regionCode = US_REGION_CODE, abaMinFloor = 3
   notableCount.textContent = 'Loading…'
   notableMeta.textContent = `Loading rarities for ${normalizedRegion} (ABA ${effectiveAbaMin}+)…`
   updateStatPills('…', '…', '…')
-  notableRows.innerHTML = '<tr><td colspan="8">Loading US notables…</td></tr>'
+  notableRows.innerHTML = '<tr><td colspan="7">Loading US notables…</td></tr>'
 
   try {
     const observations = await fetchRegionRarities(normalizedRegion, filterDaysBack, 45000, { abaMin: effectiveAbaMin })
@@ -5327,7 +5349,7 @@ async function loadNationalNotables(regionCode = US_REGION_CODE, abaMinFloor = 3
     notableMeta.textContent = `Error: ${error?.message || error}`
     updateStatPills('0', '0', '0')
     const safeErrorMessage = escapeHtml(error?.message || 'unknown error')
-    notableRows.innerHTML = `<tr><td colspan="8">US load failed: ${safeErrorMessage}.</td></tr>`
+    notableRows.innerHTML = `<tr><td colspan="7">US load failed: ${safeErrorMessage}.</td></tr>`
     setTableRenderStatus(`us-error: ${error?.message || ''}`)
     setMapLoading(false)
     markMapPartReady('observations')
@@ -5429,11 +5451,7 @@ async function requestUserLocation(manualRetry = false) {
   const permissionState = await getGeolocationPermissionState()
   if (permissionState === 'denied') {
     setLocationUiBlocked()
-    setNotablesUnavailableState(
-      'County notables unavailable until location is allowed',
-      'Location permission is blocked. Allow location and tap Use My Location again.',
-      'location-denied'
-    )
+    showLocationPermGate()
     return false
   }
 
@@ -5513,9 +5531,11 @@ async function requestUserLocation(manualRetry = false) {
 
     if (error && typeof error.code === 'number') {
       if (error.code === 1) {
-        reason = !isSecureOrigin
-          ? 'Location blocked on non-secure origin. Open over HTTPS (or localhost) and try again.'
-          : 'Permission denied. On iOS Safari, allow Location for Safari (or Home Screen app) and keep Precise Location enabled.'
+        setLocationUiBlocked()
+        showLocationPermGate()
+        setMapLoading(false)
+        updateRuntimeLog()
+        return false
       } else if (error.code === 2) {
         reason = 'Position unavailable. Move to an open area and verify Location Services are on.'
       } else if (error.code === 3) {
@@ -5537,6 +5557,25 @@ async function requestUserLocation(manualRetry = false) {
 }
 
 retryLocationBtn.addEventListener('click', () => { void requestUserLocation(true) })
+
+function showLocationPermGate() {
+  locPermGate?.removeAttribute('hidden')
+}
+
+function hideLocationPermGate() {
+  locPermGate?.setAttribute('hidden', 'hidden')
+}
+
+locPermRetryBtn?.addEventListener('click', () => {
+  hideLocationPermGate()
+  void requestUserLocation(true)
+})
+
+locPermDeclineBtn?.addEventListener('click', () => {
+  hideLocationPermGate()
+  setLocationUiUnavailable('Location declined. Showing California.')
+  void activateStateByRegion('US-CA')
+})
 menuInfoBtn?.addEventListener('click', () => {
   if (!infoModal) return
   renderInfoTechMetrics()
@@ -5869,14 +5908,18 @@ document.addEventListener('click', (event) => {
   if (searchPopover && !searchPopover.hasAttribute('hidden') && !searchPopover.contains(target) && !menuSearchBtn.contains(target)) {
     searchPopover.setAttribute('hidden', 'hidden')
   }
-  if (countyPicker && !countyPicker.contains(target) && !(headerCountyBtn && headerCountyBtn.contains(target))) {
-    closeCountyPicker()
-  }
-  if (speciesPicker && !speciesPicker.contains(target) && !(headerSpeciesBtn && headerSpeciesBtn.contains(target))) {
-    closeSpeciesPicker()
-  }
-  if (statePicker && !statePicker.contains(target) && !(headerStateBtn && headerStateBtn.contains(target))) {
-    closeStatePicker()
+  // Allow ABA bar clicks without dismissing open county/species/state pickers
+  const clickedAbaBar = bottomAbaBar && bottomAbaBar.contains(target)
+  if (!clickedAbaBar) {
+    if (countyPicker && !countyPicker.contains(target) && !(headerCountyBtn && headerCountyBtn.contains(target))) {
+      closeCountyPicker()
+    }
+    if (speciesPicker && !speciesPicker.contains(target) && !(headerSpeciesBtn && headerSpeciesBtn.contains(target))) {
+      closeSpeciesPicker()
+    }
+    if (statePicker && !statePicker.contains(target) && !(headerStateBtn && headerStateBtn.contains(target))) {
+      closeStatePicker()
+    }
   }
   if (abaCodePicker && !abaCodePicker.contains(target) && !(topAbaPills && topAbaPills.contains(target))) {
     closeAbaCodePicker()
@@ -5981,6 +6024,34 @@ notableRows.addEventListener('click', (event) => {
     if (targetPt) {
       window.setTimeout(() => openObservationPopup(targetPt), 120)
     }
+  }
+})
+
+document.querySelector('#reportsHelpBtn')?.addEventListener('click', (event) => {
+  event.stopPropagation()
+  const btn = event.currentTarget
+  const popover = document.querySelector('#reportsHelpPopover')
+  if (!popover) return
+  const isHidden = popover.hasAttribute('hidden')
+  if (isHidden) {
+    const rect = btn.getBoundingClientRect()
+    popover.style.top = `${rect.bottom + 6}px`
+    popover.style.right = `${window.innerWidth - rect.right}px`
+    popover.style.left = ''
+    popover.removeAttribute('hidden')
+    btn.setAttribute('aria-expanded', 'true')
+  } else {
+    popover.setAttribute('hidden', 'hidden')
+    btn.setAttribute('aria-expanded', 'false')
+  }
+})
+
+document.addEventListener('click', (event) => {
+  const popover = document.querySelector('#reportsHelpPopover')
+  if (!popover || popover.hasAttribute('hidden')) return
+  if (!event.target.closest('#thReports')) {
+    popover.setAttribute('hidden', 'hidden')
+    document.querySelector('#reportsHelpBtn')?.setAttribute('aria-expanded', 'false')
   }
 })
 
