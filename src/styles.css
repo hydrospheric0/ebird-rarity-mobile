@@ -320,9 +320,9 @@ body {
 
 .map-table-splitter {
   height: 10px;
-  background: var(--bg);
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
+  background: var(--brand);
+  border-top: none;
+  border-bottom: none;
   cursor: row-resize;
   touch-action: none;
 }
@@ -1164,6 +1164,14 @@ body.is-resizing {
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.85) inset;
 }
 
+/* Locked pills in US mode (codes N/1/2) */
+.stat-aba-pill.is-locked,
+.stat-aba-pill:disabled {
+  opacity: 0.28;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 .table-card .row,
 .table-card .detail {
   padding-left: 0.55rem;
@@ -1432,6 +1440,7 @@ tr.row-highlighted {
 .aba-code-4 { background: #f37748; }
 .aba-code-5 { background: #ED1313; }
 .aba-code-6 { background: #ed13d4; }
+.aba-code-0   { background: #4b5563; } /* N = no ABA code */
 .aba-code-unknown { background: #4b5563; }
 
 .yolo-code-badge {
@@ -1666,4 +1675,41 @@ a.obs-popup-species {
 .obs-popup-checklist a {
   color: #1d4ed8;
   text-decoration: underline;
+}
+
+/* Two-line column header (e.g. Last / Seen) */
+.th-two-line {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.15;
+  gap: 0;
+}
+.th-two-line br { display: none; }
+
+/* Share table button */
+.share-table-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.3rem 0.65rem;
+  background: var(--brand);
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  margin-left: 0.5rem;
+  vertical-align: middle;
+  line-height: 1;
+}
+.share-table-btn svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+.share-table-btn:active {
+  opacity: 0.75;
 }

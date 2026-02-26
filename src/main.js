@@ -141,6 +141,10 @@ app.innerHTML = `
           </div>
           <span id="notableCount" style="display:none">—</span>
           <p id="notableMeta" style="display:none"></p>
+          <button id="shareTableBtn" class="share-table-btn" type="button" hidden aria-label="Share list" title="Share visible list">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+            Share
+          </button>
           <div class="table-wrap">
             <table class="notable-table">
               <thead>
@@ -148,7 +152,7 @@ app.innerHTML = `
                   <th class="col-code sortable" id="thCode" data-sort="code">Code<span class="sort-icon" aria-hidden="true"></span></th>
                   <th class="col-species sortable" id="thSpecies" data-sort="species">Species<span class="sort-icon" aria-hidden="true"></span></th>
                   <th class="col-county sortable" id="thCounty" data-sort="county">County<span class="sort-icon" aria-hidden="true"></span></th>
-                  <th class="col-date sortable" id="thLast" data-sort="last">Last<span class="sort-icon" aria-hidden="true"></span></th>
+                  <th class="col-date sortable" id="thLast" data-sort="last"><span class="th-two-line">Last<br>Seen</span><span class="sort-icon" aria-hidden="true"></span></th>
                   <th class="col-reports" id="thReports">
                     <button id="reportsHelpBtn" class="col-reports-btn" type="button" aria-label="About report counts" aria-expanded="false">#</button>
                     <div id="reportsHelpPopover" class="reports-help-popover" hidden>
@@ -321,6 +325,7 @@ const locPermRetryBtn = document.querySelector('#locPermRetryBtn')
 const locPermDeclineBtn = document.querySelector('#locPermDeclineBtn')
 const notableCount = document.querySelector('#notableCount')
 const notableMeta = document.querySelector('#notableMeta')
+const shareTableBtn = document.querySelector('#shareTableBtn')
 const topAbaPills = document.querySelector('#topAbaPills')
 const bottomAbaBar = document.querySelector('.bottom-aba-bar')
 const countyPicker = document.querySelector('#countyPicker')
@@ -785,10 +790,9 @@ function matchesAbaSelection(item, abaMinValue, selectedCodes) {
   const selected = selectedCodes instanceof Set ? selectedCodes : new Set()
   const hasSelections = selected.size > 0
   if (hasSelections) {
-    if (selected.has(0)) {
-      return !Number.isFinite(code)
-    }
-    return Number.isFinite(code) && selected.has(code)
+    const codeIsNull = !Number.isFinite(code)
+    if (codeIsNull) return selected.has(0)
+    return selected.has(code)
   }
   if (!Number.isFinite(code)) return false
   const minCode = Math.max(1, Number(abaMinValue) || 1)
@@ -1687,7 +1691,8 @@ function getStateAbbrevByRegion(regionCode) {
 function refreshHeaderStateOptions() {
   if (!headerStateSelect || !headerStateBtn) return
   const activeState = stateRegionFromAnyRegion(currentCountyRegion) || 'US-CA'
-  const options = LOWER_48_STATES
+  const usEntry = { code: US_REGION_CODE, name: 'United States \u2014 All' }
+  const options = [usEntry, ...LOWER_48_STATES]
 
   headerStateSelect.innerHTML = options
     .map((state) => {
@@ -1732,6 +1737,18 @@ function renderStatePickerOptions() {
 
 async function activateStateByRegion(stateRegion) {
   const normalized = String(stateRegion || '').toUpperCase()
+  if (normalized === US_REGION_CODE) {
+    // US-wide mode: default to ABA 3/4/5 only
+    selectedAbaCodes = new Set([3, 4, 5])
+    resetFiltersForCountySwitch()
+    selectedAbaCodes = new Set([3, 4, 5])
+    refreshHeaderStateOptions()
+    renderStatePickerOptions()
+    await loadNationalNotables(US_REGION_CODE, 3)
+    refreshHeaderStateOptions()
+    renderStatePickerOptions()
+    return
+  }
   if (!/^US-[A-Z]{2}$/.test(normalized)) return
   resetFiltersForCountySwitch()
   refreshHeaderStateOptions()
@@ -2255,16 +2272,22 @@ function renderAbaStatPills(sorted) {
   if (!topAbaPills && !pickerAbaPills && !statePickerAbaPills) return
   const counts = new Map()
   sorted.forEach((item) => {
-    const code = Number.isFinite(item.abaCode) ? item.abaCode : null
-    if (code !== null) counts.set(code, (counts.get(code) || 0) + 1)
+    const code = Number.isFinite(item.abaCode) ? item.abaCode : 0
+    counts.set(code, (counts.get(code) || 0) + 1)
   })
 
-  const orderedCodes = [1, 2, 3, 4, 5]
+  const isUsMode = String(currentCountyRegion || '').toUpperCase() === US_REGION_CODE
+  // In US mode codes 0 (N), 1, 2 are locked out — only 3/4/5 available
+  const lockedInUsMode = new Set([0, 1, 2])
+  const orderedCodes = [0, 1, 2, 3, 4, 5]
   const html = orderedCodes
     .map((c) => {
       const count = counts.get(c) || 0
       const isActive = selectedAbaCodes instanceof Set && selectedAbaCodes.has(c)
-      return `<button type="button" class="stat-aba-pill${isActive ? ' is-active' : ''}" data-code="${c}" aria-pressed="${isActive ? 'true' : 'false'}" title="Toggle ABA ${c} filter"><span class="stat-aba-pill-badge aba-code-${c}"><span class="aba-pill-count">${count}</span></span><span class="stat-aba-pill-code" aria-hidden="true">${c}</span></button>`
+      const isDisabled = isUsMode && lockedInUsMode.has(c)
+      const label = c === 0 ? 'N' : String(c)
+      const badgeClass = c === 0 ? 'aba-code-unknown' : `aba-code-${c}`
+      return `<button type="button" class="stat-aba-pill${isActive ? ' is-active' : ''}${isDisabled ? ' is-locked' : ''}" data-code="${c}" ${isDisabled ? 'disabled aria-disabled="true"' : ''} aria-pressed="${isActive ? 'true' : 'false'}" title="Toggle ABA ${label} filter"><span class="stat-aba-pill-badge ${badgeClass}"><span class="aba-pill-count">${count}</span></span><span class="stat-aba-pill-code" aria-hidden="true">${label}</span></button>`
     })
     .join('')
 
@@ -2277,6 +2300,7 @@ function setNotablesUnavailableState(metaMessage, rowMessage, statusMessage = 'n
   notableCount.className = 'badge warn'
   notableCount.textContent = '0'
   notableMeta.textContent = metaMessage
+  if (shareTableBtn) shareTableBtn.hidden = true
   updateStatPills('—', '—', '—')
   notableRows.innerHTML = `<tr><td colspan="7">${rowMessage}</td></tr>`
   setTableRenderStatus(statusMessage)
@@ -3709,6 +3733,7 @@ function renderNotableTable(observations, countyName, regionCode, abaPillObserva
 
   notableCount.className = 'badge ok'
   notableCount.textContent = String(sorted.length)
+  if (shareTableBtn) { shareTableBtn.hidden = false; shareTableBtn.style.display = '' }
   const confirmedCount = sorted.filter((r) => r.confirmedAny).length
   updateStatPills(sorted.length, confirmedCount, sorted.length - confirmedCount)
   renderAbaStatPills(Array.from(abaPillGrouped.values()))
@@ -3848,6 +3873,7 @@ function renderStateCountySummaryTable(observations, countyName, stateRegion, ab
 
   notableCount.className = 'badge ok'
   notableCount.textContent = String(stateRows.length)
+  if (shareTableBtn) { shareTableBtn.hidden = false; shareTableBtn.style.display = '' }
   updateStatPills(totalRarities, confirmedRarities, pendingRarities)
 
   const fragment = document.createDocumentFragment()
@@ -3879,6 +3905,60 @@ function renderStateCountySummaryTable(observations, countyName, stateRegion, ab
   currentTableData = []
   setTableRenderStatus(`state-summary rows=${stateRows.length}`)
 }
+
+function buildShareText() {
+  const meta = notableMeta?.textContent || ''
+  const rows = [...(notableRows?.querySelectorAll('tr[data-species], tr[data-county-region]') || [])]
+  if (!rows.length) return null
+
+  const lines = []
+  lines.push(`eBird Rarities \u2014 ${meta}`)
+  lines.push('')
+
+  // Determine if this is a county-summary view or a species view
+  const isCountySummary = rows[0]?.querySelector('.county-summary-btn') != null
+  if (isCountySummary) {
+    lines.push('County\tRarities\tLast Seen')
+    rows.forEach((tr) => {
+      const county = tr.querySelector('.county-summary-btn')?.textContent?.trim() || ''
+      const count = tr.querySelector('.count-pill')?.textContent?.trim() || ''
+      const last = tr.querySelector('.date-bubble')?.textContent?.trim() || ''
+      lines.push(`${county}\t${count}\t${last}`)
+    })
+  } else {
+    lines.push('ABA\tSpecies\tCounty\tLast Seen\tReports')
+    rows.forEach((tr) => {
+      const aba = tr.querySelector('.aba-code-badge')?.textContent?.trim() || ''
+      const species = tr.querySelector('.species-btn')?.textContent?.trim() || ''
+      const county = tr.querySelector('.county-cell')?.textContent?.trim() || ''
+      const last = tr.querySelector('.date-bubble')?.textContent?.trim() || ''
+      const count = tr.querySelector('.count-pill')?.textContent?.trim() || ''
+      lines.push(`${aba}\t${species}\t${county}\t${last}\t${count}`)
+    })
+  }
+  return lines.join('\n')
+}
+
+shareTableBtn?.addEventListener('click', async () => {
+  const text = buildShareText()
+  if (!text) return
+  const title = `eBird Rarities \u2014 ${notableMeta?.textContent || ''}`
+  if (navigator.share) {
+    try {
+      await navigator.share({ title, text })
+      return
+    } catch (err) {
+      if (err.name === 'AbortError') return // user cancelled
+      // fall through to clipboard
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(text)
+    const orig = shareTableBtn.textContent
+    shareTableBtn.textContent = '\u2713 Copied'
+    window.setTimeout(() => { shareTableBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg> Share' }, 2000)
+  } catch { /* clipboard blocked */ }
+})
 
 function applySortAndRender() {
   if (!currentTableData.length) return
@@ -5619,7 +5699,7 @@ headerStateBtn?.addEventListener('click', (event) => {
 
 headerStateSelect?.addEventListener('change', async (event) => {
   const next = String(event?.target?.value || '').toUpperCase()
-  if (!/^US-[A-Z]{2}$/.test(next)) return
+  if (next !== US_REGION_CODE && !/^US-[A-Z]{2}$/.test(next)) return
   await activateStateByRegion(next)
 })
 
@@ -5838,11 +5918,10 @@ speciesPickerList?.addEventListener('click', (event) => {
 statePickerList?.addEventListener('click', async (event) => {
   const btn = event.target.closest('.county-option')
   if (!btn) return
-  const index = Number(btn.dataset.index)
-  const state = LOWER_48_STATES[index]
-  if (!state?.code) return
+  const code = String(btn.dataset.code || '').toUpperCase()
+  if (!code) return
   closeStatePicker()
-  await activateStateByRegion(state.code)
+  await activateStateByRegion(code)
 })
 
 function activateAbaPill(pill) {
@@ -5850,7 +5929,10 @@ function activateAbaPill(pill) {
   const parsedCode = Number(pill.dataset.code)
   if (!Number.isFinite(parsedCode)) return
   const code = Math.round(parsedCode)
-  if (code < 1 || code > 5) return
+  if (code < 0 || code > 5) return
+  // In US mode, codes 0 (N), 1, 2 are locked
+  const isUsMode = String(currentCountyRegion || '').toUpperCase() === US_REGION_CODE
+  if (isUsMode && (code === 0 || code === 1 || code === 2)) return
   if (!(selectedAbaCodes instanceof Set)) selectedAbaCodes = new Set()
 
   // Multi-select toggle: click toggles individual codes on/off.
