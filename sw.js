@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rarity-mobile-v0.5.0'
+const CACHE_NAME = 'rarity-mobile-v0.6.0'
 const APP_SHELL = [
   './',
   './index.html',
@@ -32,6 +32,15 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
+  // Navigation requests (page loads / deep links): always serve the app shell
+  // so the SPA can bootstrap even when offline or after a new deploy.
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      caches.match('./index.html').then((cached) => cached || fetch(event.request))
+    )
+    return
+  }
+
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) {
@@ -41,7 +50,10 @@ self.addEventListener('fetch', (event) => {
         const cloned = response.clone()
         caches.open(CACHE_NAME).then((cache) => cache.put(event.request, cloned))
         return response
-      })
+      }).catch(() => new Response('Network unavailable', {
+        status: 503,
+        headers: { 'Content-Type': 'text/plain' },
+      }))
     })
   )
 })

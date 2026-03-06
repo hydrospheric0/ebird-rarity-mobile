@@ -400,7 +400,13 @@ body.is-resizing {
   line-height: 1;
   border: 1.5px solid #ffffff;
   box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  background: #64748b; /* default: no ABA code */
 }
+.cdot-circle[data-aba="1"] { background: #067bc2; }
+.cdot-circle[data-aba="2"] { background: #84bcda; }
+.cdot-circle[data-aba="3"] { background: #ecc30b; }
+.cdot-circle[data-aba="4"] { background: #f37748; }
+.cdot-circle[data-aba="5"] { background: #ED1313; }
 
 .county-picker {
   background: #fff;
@@ -1533,6 +1539,22 @@ tr.row-highlighted {
   border: 1px solid transparent;
 }
 
+/* Compact perf-metric badge variant (overrides .badge sizing defaults) */
+.badge--perf {
+  font-size: 0.65rem;
+  letter-spacing: 0;
+  min-width: 0;
+  padding: 0.1rem 0.4rem;
+}
+
+/* Monospaced pre-formatted perf detail line */
+.detail--perf {
+  font-family: monospace;
+  font-size: 0.62rem;
+  white-space: pre;
+  line-height: 1.55;
+}
+
 .badge.ok {
   color: #14532d;
   background: #dcfce7;
@@ -1778,4 +1800,10 @@ a.obs-popup-species {
   color: #fff;
   line-height: 1;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+  background: #64748b; /* default: no ABA code */
 }
+.scm-count[data-aba="1"] { background: #067bc2; }
+.scm-count[data-aba="2"] { background: #84bcda; }
+.scm-count[data-aba="3"] { background: #ecc30b; }
+.scm-count[data-aba="4"] { background: #f37748; }
+.scm-count[data-aba="5"] { background: #ED1313; }

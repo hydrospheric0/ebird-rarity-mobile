@@ -3,6 +3,27 @@ import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
 import { API_BASE_URL, fetchWorkerHealth } from './config/api.js'
 import { getYoloSpeciesInfo, getSpeciesMapLabel, getAbaCodeOverride } from './data/species-reference.js'
+import {
+  distanceKm, pointInRing, pointInPolygon, featureContainsPoint,
+  normalizeRingCoordinates, buildInverseMaskFeaturesFromActiveFeatures,
+} from './modules/geo.js'
+import {
+  US_REGION_CODE, LOWER_48_STATES, STATE_CENTERS,
+  isCountyRegionCode, stateRegionFromCountyRegion, stateRegionFromAnyRegion,
+  getStateNameByRegion, getStateAbbrevByRegion, normalizeCountyName, shortCountyName, escapeHtml,
+} from './modules/region-utils.js'
+import {
+  cutoffDateForDaysBack, getAbaCodeNumber, matchesAbaSelection,
+  filterObservationsToCountyRegion, filterObservationsToStateRegion,
+  summarizeCountyObservations, formatCountySummary, formatCountySummaryPills,
+  parseObsDate, formatShortDate, formatObsDateTime, formatObsDayMonthTime24, formatObservationDate,
+  parseFirstAvailableObsDate, getObservationGroupKey, getItemStateAbbrev, getItemCountyName,
+  getLocationKeyForItem, buildLocationIndexForPopup, isConfirmedObservation, dayOffsetFromToday,
+} from './modules/observations.js'
+import {
+  buildNotablesCacheKey, saveNotablesCache, loadNotablesCache, getCacheDaysBack,
+  countyContextCacheKey, saveCountyContextCache, loadCountyContextCache,
+} from './modules/cache.js'
 
 const BUILD_TAG = typeof __BUILD_TAG__ !== 'undefined' ? __BUILD_TAG__ : 'dev'
 
@@ -60,6 +81,12 @@ app.innerHTML = `
     </div>
     <header class="app-header">
       <h1 class="app-title"><span class="brandName">Twitcher</span><span class="brandTagline"> - find eBird Rarities</span></h1>
+      <button id="menuPin" class="header-toggle" type="button" aria-label="Zoom to my location" title="Zoom to my location">
+        <svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><polygon points="12,3 19,20 12,16 5,20"/></svg>
+      </button>
+      <button id="menuSearch" class="header-toggle" type="button" aria-label="Search region" title="Search / filter region">
+        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="22" y2="22"/></svg>
+      </button>
       <button id="menuInfo" class="header-toggle" type="button" aria-label="About this page" title="About this page">i</button>
 
       <section id="statusPopover" class="status-popover status-hidden" aria-hidden="true">
@@ -72,9 +99,9 @@ app.innerHTML = `
 
         <div class="row">
           <span>Perf</span>
-          <span id="perfBadge" class="badge" style="font-size:0.65rem;letter-spacing:0;min-width:0;padding:0.1rem 0.4rem">—</span>
+          <span id="perfBadge" class="badge badge--perf">—</span>
         </div>
-        <p id="perfDetail" class="detail" style="font-family:monospace;font-size:0.62rem;white-space:pre;line-height:1.55"></p>
+        <p id="perfDetail" class="detail detail--perf"></p>
 
         <div class="row">
           <span>My Location</span>
@@ -139,8 +166,8 @@ app.innerHTML = `
             <div class="county-picker-title">ABA Codes</div>
             <div id="abaCodePickerList" class="county-picker-list" role="listbox" aria-label="ABA code list"></div>
           </div>
-          <span id="notableCount" style="display:none">—</span>
-          <p id="notableMeta" style="display:none"></p>
+          <span id="notableCount" hidden>—</span>
+          <p id="notableMeta" hidden></p>
           <div class="table-wrap">
             <table class="notable-table">
               <thead>
@@ -164,16 +191,11 @@ app.innerHTML = `
               <tbody id="notableRows"></tbody>
             </table>
           </div>
-          <p id="tableRenderStatus" class="detail" style="display:none">render: init</p>
+          <p id="tableRenderStatus" class="detail" hidden>render: init</p>
         </section>
       </section>
 
-      <section id="panelTable" class="panel">
-        <section class="card">
-          <h2>Table Mode</h2>
-          <p class="detail">Table mode is the next step. Map mode is active first as requested.</p>
-        </section>
-      </section>
+      <section id="panelTable" class="panel"></section>
     </main>
 
     <div class="bottom-aba-bar" aria-label="ABA summary">
@@ -246,6 +268,10 @@ app.innerHTML = `
           <span>County:</span>
           <select id="searchCountySelect" class="top-menu-select" aria-label="Search county"></select>
         </label>
+        <label class="menu-popover-field" for="searchSpeciesSelect">
+          <span>Species:</span>
+          <select id="searchSpeciesSelect" class="top-menu-select" aria-label="Search species"></select>
+        </label>
         <label class="menu-popover-field" for="searchAbaMinInput">
           <span>ABA Code ≥ <span id="searchAbaMinValue">1</span></span>
           <input id="searchAbaMinInput" class="filter-slider" type="range" min="1" max="5" value="1" step="1" aria-label="Search ABA minimum">
@@ -284,7 +310,6 @@ const statusPopover = document.querySelector('#statusPopover')
 const menuInfoBtn = document.querySelector('#menuInfo')
 const menuSearchBtn = document.querySelector('#menuSearch')
 const menuPinBtn = document.querySelector('#menuPin')
-const menuRefreshBtn = document.querySelector('#menuRefresh')
 const bottomReloadBtn = document.querySelector('#bottomReloadBtn')
 const infoModal = document.querySelector('#infoModal')
 const infoCloseBtn = document.querySelector('#infoCloseBtn')
@@ -566,7 +591,6 @@ function perfReset() {
 const countySummaryInFlight = new Set()
 let countySummaryPrefetchToken = 0
 let countyPickerRenderTimer = null
-const US_REGION_CODE = 'US'
 const UI_FAILSAFE_TIMEOUT_MS = 22000
 let uiFailsafeTimer = null
 let lastMapLoadingMessage = 'Loading map…'
@@ -576,109 +600,6 @@ const mapLoadState = {
   stateMask: false,
   observations: false,
 }
-
-const LOWER_48_STATES = [
-  { code: 'US-AL', name: 'Alabama' },
-  { code: 'US-AZ', name: 'Arizona' },
-  { code: 'US-AR', name: 'Arkansas' },
-  { code: 'US-CA', name: 'California' },
-  { code: 'US-CO', name: 'Colorado' },
-  { code: 'US-CT', name: 'Connecticut' },
-  { code: 'US-DE', name: 'Delaware' },
-  { code: 'US-FL', name: 'Florida' },
-  { code: 'US-GA', name: 'Georgia' },
-  { code: 'US-ID', name: 'Idaho' },
-  { code: 'US-IL', name: 'Illinois' },
-  { code: 'US-IN', name: 'Indiana' },
-  { code: 'US-IA', name: 'Iowa' },
-  { code: 'US-KS', name: 'Kansas' },
-  { code: 'US-KY', name: 'Kentucky' },
-  { code: 'US-LA', name: 'Louisiana' },
-  { code: 'US-ME', name: 'Maine' },
-  { code: 'US-MD', name: 'Maryland' },
-  { code: 'US-MA', name: 'Massachusetts' },
-  { code: 'US-MI', name: 'Michigan' },
-  { code: 'US-MN', name: 'Minnesota' },
-  { code: 'US-MS', name: 'Mississippi' },
-  { code: 'US-MO', name: 'Missouri' },
-  { code: 'US-MT', name: 'Montana' },
-  { code: 'US-NE', name: 'Nebraska' },
-  { code: 'US-NV', name: 'Nevada' },
-  { code: 'US-NH', name: 'New Hampshire' },
-  { code: 'US-NJ', name: 'New Jersey' },
-  { code: 'US-NM', name: 'New Mexico' },
-  { code: 'US-NY', name: 'New York' },
-  { code: 'US-NC', name: 'North Carolina' },
-  { code: 'US-ND', name: 'North Dakota' },
-  { code: 'US-OH', name: 'Ohio' },
-  { code: 'US-OK', name: 'Oklahoma' },
-  { code: 'US-OR', name: 'Oregon' },
-  { code: 'US-PA', name: 'Pennsylvania' },
-  { code: 'US-RI', name: 'Rhode Island' },
-  { code: 'US-SC', name: 'South Carolina' },
-  { code: 'US-SD', name: 'South Dakota' },
-  { code: 'US-TN', name: 'Tennessee' },
-  { code: 'US-TX', name: 'Texas' },
-  { code: 'US-UT', name: 'Utah' },
-  { code: 'US-VT', name: 'Vermont' },
-  { code: 'US-VA', name: 'Virginia' },
-  { code: 'US-WA', name: 'Washington' },
-  { code: 'US-WV', name: 'West Virginia' },
-  { code: 'US-WI', name: 'Wisconsin' },
-  { code: 'US-WY', name: 'Wyoming' },
-]
-
-// Approximate geographic centroids for map state markers
-const STATE_CENTERS = new Map([
-  ['US-AL', { lat: 32.8, lng: -86.8 }],
-  ['US-AZ', { lat: 34.3, lng: -111.1 }],
-  ['US-AR', { lat: 35.0, lng: -92.4 }],
-  ['US-CA', { lat: 37.2, lng: -119.5 }],
-  ['US-CO', { lat: 39.0, lng: -105.5 }],
-  ['US-CT', { lat: 41.6, lng: -72.7 }],
-  ['US-DE', { lat: 39.0, lng: -75.5 }],
-  ['US-FL', { lat: 28.1, lng: -82.4 }],
-  ['US-GA', { lat: 32.7, lng: -83.4 }],
-  ['US-ID', { lat: 44.4, lng: -114.6 }],
-  ['US-IL', { lat: 40.0, lng: -89.2 }],
-  ['US-IN', { lat: 40.3, lng: -86.1 }],
-  ['US-IA', { lat: 42.1, lng: -93.5 }],
-  ['US-KS', { lat: 38.5, lng: -98.4 }],
-  ['US-KY', { lat: 37.5, lng: -85.3 }],
-  ['US-LA', { lat: 31.1, lng: -91.9 }],
-  ['US-ME', { lat: 45.4, lng: -69.2 }],
-  ['US-MD', { lat: 39.1, lng: -76.8 }],
-  ['US-MA', { lat: 42.3, lng: -71.8 }],
-  ['US-MI', { lat: 44.3, lng: -85.4 }],
-  ['US-MN', { lat: 46.4, lng: -94.0 }],
-  ['US-MS', { lat: 32.7, lng: -89.7 }],
-  ['US-MO', { lat: 38.5, lng: -92.5 }],
-  ['US-MT', { lat: 47.0, lng: -110.0 }],
-  ['US-NE', { lat: 41.5, lng: -99.9 }],
-  ['US-NV', { lat: 39.3, lng: -116.6 }],
-  ['US-NH', { lat: 43.7, lng: -71.6 }],
-  ['US-NJ', { lat: 40.1, lng: -74.5 }],
-  ['US-NM', { lat: 34.5, lng: -106.1 }],
-  ['US-NY', { lat: 42.9, lng: -75.5 }],
-  ['US-NC', { lat: 35.6, lng: -79.4 }],
-  ['US-ND', { lat: 47.5, lng: -100.5 }],
-  ['US-OH', { lat: 40.4, lng: -82.7 }],
-  ['US-OK', { lat: 35.6, lng: -97.5 }],
-  ['US-OR', { lat: 44.1, lng: -120.5 }],
-  ['US-PA', { lat: 40.9, lng: -77.8 }],
-  ['US-RI', { lat: 41.7, lng: -71.5 }],
-  ['US-SC', { lat: 33.9, lng: -80.9 }],
-  ['US-SD', { lat: 44.4, lng: -100.3 }],
-  ['US-TN', { lat: 35.9, lng: -86.4 }],
-  ['US-TX', { lat: 31.5, lng: -99.3 }],
-  ['US-UT', { lat: 39.4, lng: -111.1 }],
-  ['US-VT', { lat: 44.0, lng: -72.7 }],
-  ['US-VA', { lat: 37.9, lng: -79.5 }],
-  ['US-WA', { lat: 47.4, lng: -120.5 }],
-  ['US-WV', { lat: 38.6, lng: -80.6 }],
-  ['US-WI', { lat: 44.6, lng: -90.0 }],
-  ['US-WY', { lat: 43.0, lng: -107.5 }],
-])
 
 function clearUiFailsafeTimer() {
   if (uiFailsafeTimer) {
@@ -807,47 +728,6 @@ function isStaleNotablesLoad(loadId, requestId, countySwitchRequestId = null) {
   if (requestId !== null && isStaleLocationRequest(requestId)) return true
   if (countySwitchRequestId !== null && isStaleCountySwitchRequest(countySwitchRequestId)) return true
   return false
-}
-
-function cutoffDateForDaysBack(daysBack) {
-  const days = Math.max(1, Number(daysBack) || 1)
-  const cutoff = new Date()
-  cutoff.setHours(0, 0, 0, 0)
-  cutoff.setDate(cutoff.getDate() - (days - 1))
-  return cutoff
-}
-
-function getAbaCodeNumber(item) {
-  const rawCode = item?.abaCode ?? item?.abaRarityCode
-  const code = Number(rawCode)
-  if (Number.isFinite(code)) {
-    const rounded = Math.round(code)
-    if (rounded >= 1 && rounded <= 5) return rounded
-    if (rounded === 6) return 5
-  }
-  const overrideCode = getAbaCodeOverride(
-    item?.comName || item?.species || '',
-    item?.speciesCode || item?.species_code || item?.speciesCode4 || ''
-  )
-  if (!Number.isFinite(Number(overrideCode))) return null
-  const rounded = Math.round(Number(overrideCode))
-  if (rounded >= 1 && rounded <= 5) return rounded
-  if (rounded === 6) return 5
-  return null
-}
-
-function matchesAbaSelection(item, abaMinValue, selectedCodes) {
-  const code = getAbaCodeNumber(item)
-  const selected = selectedCodes instanceof Set ? selectedCodes : new Set()
-  const hasSelections = selected.size > 0
-  if (hasSelections) {
-    const codeIsNull = !Number.isFinite(code)
-    if (codeIsNull) return selected.has(0)
-    return selected.has(code)
-  }
-  if (!Number.isFinite(code)) return false
-  const minCode = Math.max(1, Number(abaMinValue) || 1)
-  return code >= minCode
 }
 
 function applyActiveFiltersAndRender(options = {}) {
@@ -1148,47 +1028,6 @@ function getFeatureCenter(feature) {
   }
 }
 
-function pointInRing(lng, lat, ring) {
-  let inside = false
-  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    const xi = Number(ring[i]?.[0])
-    const yi = Number(ring[i]?.[1])
-    const xj = Number(ring[j]?.[0])
-    const yj = Number(ring[j]?.[1])
-    if (!Number.isFinite(xi) || !Number.isFinite(yi) || !Number.isFinite(xj) || !Number.isFinite(yj)) continue
-    const intersects = ((yi > lat) !== (yj > lat)) && (lng < ((xj - xi) * (lat - yi)) / ((yj - yi) || 1e-12) + xi)
-    if (intersects) inside = !inside
-  }
-  return inside
-}
-
-function pointInPolygon(lng, lat, polygonCoords) {
-  if (!Array.isArray(polygonCoords) || polygonCoords.length === 0) return false
-  const outer = polygonCoords[0]
-  if (!Array.isArray(outer) || outer.length < 3) return false
-  if (!pointInRing(lng, lat, outer)) return false
-  for (let index = 1; index < polygonCoords.length; index += 1) {
-    const hole = polygonCoords[index]
-    if (Array.isArray(hole) && hole.length >= 3 && pointInRing(lng, lat, hole)) {
-      return false
-    }
-  }
-  return true
-}
-
-function featureContainsPoint(feature, lng, lat) {
-  const geometry = feature?.geometry
-  if (!geometry) return false
-  if (geometry.type === 'Polygon') {
-    return pointInPolygon(lng, lat, geometry.coordinates)
-  }
-  if (geometry.type === 'MultiPolygon') {
-    return Array.isArray(geometry.coordinates)
-      && geometry.coordinates.some((polygonCoords) => pointInPolygon(lng, lat, polygonCoords))
-  }
-  return false
-}
-
 function findNeighborCountyFeatureAtLatLng(lat, lng) {
   const features = Array.isArray(latestCountyContextGeojson?.features) ? latestCountyContextGeojson.features : []
   for (const feature of features) {
@@ -1240,97 +1079,6 @@ function zoomToStateBounds(geojson, stateRegion) {
     // ignore zoom errors
   }
   return false
-}
-
-function distanceKm(lat1, lng1, lat2, lng2) {
-  const toRad = (value) => (value * Math.PI) / 180
-  const dLat = toRad(lat2 - lat1)
-  const dLng = toRad(lng2 - lng1)
-  const a = Math.sin(dLat / 2) ** 2
-    + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2
-  return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-}
-
-function filterObservationsToCountyRegion(observations, countyRegion) {
-  const target = String(countyRegion || '').toUpperCase()
-  const source = Array.isArray(observations) ? observations : []
-  if (!target) return source
-  return source.filter((item) => String(item?.subnational2Code || '').toUpperCase() === target)
-}
-
-function filterObservationsToStateRegion(observations, stateRegion) {
-  const target = String(stateRegion || '').toUpperCase()
-  const source = Array.isArray(observations) ? observations : []
-  if (!/^US-[A-Z]{2}$/.test(target)) return source
-  return source.filter((item) => String(item?.subnational1Code || '').toUpperCase() === target)
-}
-
-function summarizeCountyObservations(observations) {
-  const grouped = new Map()
-  ;(Array.isArray(observations) ? observations : []).forEach((item) => {
-    const species = item?.comName || ''
-    const state = String(item?.subnational1Code || '')
-    const county = String(item?.subnational2Code || item?.subnational2Name || '')
-    const lat = Number(item?.lat)
-    const lng = Number(item?.lng)
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
-    const locId = item?.locId ? String(item.locId) : ''
-    const locKey = locId || `${lat.toFixed(4)}|${lng.toFixed(4)}`
-    const key = `${species}::${state}::${county}::${locKey}`
-    const abaCode = getAbaCodeNumber(item)
-    if (!grouped.has(key)) {
-      grouped.set(key, { abaCode })
-      return
-    }
-    const existing = grouped.get(key)
-    if (abaCode > existing.abaCode) existing.abaCode = abaCode
-  })
-
-  const abaCounts = new Map([[0, 0], [1, 0], [2, 0], [3, 0], [4, 0], [5, 0]])
-  grouped.forEach((entry) => {
-    const code = Number.isFinite(entry.abaCode) && entry.abaCode >= 1 && entry.abaCode <= 5 ? entry.abaCode : 0
-    abaCounts.set(code, (abaCounts.get(code) || 0) + 1)
-  })
-
-  return {
-    rarityCount: grouped.size,
-    abaCounts,
-  }
-}
-
-function formatCountySummary(summary) {
-  if (!summary) return 'Rarities: — · ABA: —'
-  const parts = []
-  for (let code = 1; code <= 5; code += 1) {
-    const count = summary.abaCounts.get(code) || 0
-    if (count > 0) parts.push(`${code}:${count}`)
-  }
-  const none = summary.abaCounts.get(0) || 0
-  if (none > 0) parts.push(`0:${none}`)
-  const abaText = parts.length ? parts.join(' ') : 'none'
-  return `Rarities: ${summary.rarityCount} · ABA ${abaText}`
-}
-
-function formatCountySummaryPills(summary, options = {}) {
-  if (!summary) return ''
-  const { includeTotal = true, includeNoCode = false } = options || {}
-  const pills = []
-  if (includeTotal) {
-    pills.push(`<span class="county-pill county-pill-rarity" title="Total rarities">${summary.rarityCount}</span>`)
-  }
-  for (let code = 1; code <= 5; code += 1) {
-    const count = summary.abaCounts.get(code) || 0
-    if (count > 0) {
-      pills.push(`<span class="county-pill county-aba-pill aba-code-${code}" title="ABA ${code}: ${count}">${count}</span>`)
-    }
-  }
-  if (includeNoCode) {
-    const none = summary.abaCounts.get(0) || 0
-    if (none > 0) {
-      pills.push(`<span class="county-pill county-aba-pill aba-code-unknown" title="No ABA code: ${none}">${none}</span>`)
-    }
-  }
-  return pills.join('')
 }
 
 function scheduleCountyPickerRender() {
@@ -1397,10 +1145,8 @@ function renderCountyPickerOptions() {
     .join('')
 }
 
-// ABA dot colors matching canvas overlay palette
-const DOT_ABA_COLORS = {
-  1: '#067bc2', 2: '#84bcda', 3: '#ecc30b', 4: '#f37748', 5: '#ED1313',
-}
+// ABA code →0 default; used as data-aba attribute on dot elements (CSS handles colours)
+const DOT_ABA_VALID = new Set([1, 2, 3, 4, 5])
 
 function clearStateMarkers() {
   if (stateMarkerLayerRef) stateMarkerLayerRef.clearLayers()
@@ -1439,8 +1185,8 @@ function renderStateMarkersOnMap(observations) {
     const center = STATE_CENTERS.get(stateCode)
     if (!center) continue
     const abbrev = getStateAbbrevByRegion(stateCode)
-    const dotColor = DOT_ABA_COLORS[maxAba] || '#64748b'
-    const html = `<div class="state-cluster-marker"><span class="scm-abbrev">${abbrev}</span><span class="scm-count" style="background:${dotColor}">${count}</span></div>`
+    const dotAba = DOT_ABA_VALID.has(maxAba) ? maxAba : 0
+    const html = `<div class="state-cluster-marker"><span class="scm-abbrev">${abbrev}</span><span class="scm-count" data-aba="${dotAba}">${count}</span></div>`
     const marker = L.marker([center.lat, center.lng], {
       pane: 'countyDotPane',
       icon: L.divIcon({ className: 'state-cluster-icon', html, iconSize: [52, 36], iconAnchor: [26, 18] }),
@@ -1524,20 +1270,19 @@ function updateCountyDots() {
       return selectedCodes.reduce((sum, code) => sum + (summary.abaCounts.get(code) || 0), 0)
     })()
 
-    // When ABA selection is active, only show counties that have matches,
-    // and color the dot by the selected code (or highest selected if multi-select).
-    let dotColor = '#64748b'
+    // When ABA selection is active, only show counties that have matches.
+    let dotAba = 0
     if (hasAbaSelection && selectedCodes.length > 0) {
       if (rarityCount <= 0) continue
-      dotColor = DOT_ABA_COLORS[highestSelectedCode] || '#64748b'
+      dotAba = DOT_ABA_VALID.has(highestSelectedCode) ? highestSelectedCode : 0
     } else if (stateFiltered) {
       if (rarityCount <= 0) continue
       const maxCode = maxAbaByCountyRegion.get(countyRegion) || null
-      dotColor = DOT_ABA_COLORS[maxCode] || '#64748b'
+      dotAba = DOT_ABA_VALID.has(maxCode) ? maxCode : 0
     } else if (summary) {
-      // Pick color from highest ABA code present
-      for (let code = 6; code >= 1; code--) {
-        if ((summary.abaCounts.get(code) || 0) > 0) { dotColor = DOT_ABA_COLORS[code]; break }
+      // Pick highest ABA code present
+      for (let code = 5; code >= 1; code--) {
+        if ((summary.abaCounts.get(code) || 0) > 0) { dotAba = code; break }
       }
     }
 
@@ -1545,7 +1290,7 @@ function updateCountyDots() {
     const markerHtml = `
       <div class="county-dot-marker">
         ${showCountyNames ? `<span class="cdot-name">${escapeHtml(opt.countyName)}</span>` : ''}
-        <span class="cdot-circle" style="background:${dotColor}">${countText}</span>
+        <span class="cdot-circle" data-aba="${dotAba}">${countText}</span>
       </div>
     `
 
@@ -1758,7 +1503,7 @@ function refreshHeaderCountyOptions() {
       const summary = getCountySummary(region, false)
       const parts = []
       if (summary && summary.abaCounts instanceof Map) {
-        for (let code = 6; code >= 1; code -= 1) {
+        for (let code = 5; code >= 1; code -= 1) {
           const count = summary.abaCounts.get(code) || 0
           if (count > 0) parts.push(`${code}:${count}`)
         }
@@ -1780,21 +1525,6 @@ function refreshHeaderCountyOptions() {
     const selectedOpt = headerCountySelect.selectedOptions?.[0]
     headerCountyBtn.textContent = selectedOpt?.textContent || String(options[headerCountySelect.selectedIndex]?.countyName || 'County')
   }
-}
-
-function stateRegionFromAnyRegion(regionCode) {
-  const normalized = String(regionCode || '').toUpperCase()
-  if (normalized === US_REGION_CODE) return US_REGION_CODE
-  if (/^US-[A-Z]{2}$/.test(normalized)) return normalized
-  if (/^US-[A-Z]{2}-\d{3}$/.test(normalized)) return stateRegionFromCountyRegion(normalized)
-  return null
-}
-
-function getStateAbbrevByRegion(regionCode) {
-  const normalized = String(regionCode || '').toUpperCase()
-  if (normalized === US_REGION_CODE) return 'US'
-  if (/^US-[A-Z]{2}$/.test(normalized)) return normalized.split('-')[1] || normalized
-  return normalized
 }
 
 function refreshHeaderStateOptions() {
@@ -1970,24 +1700,6 @@ function switchCountyFromMapTap(countyRegion, lat = null, lng = null, countyName
   // UI stays in sync.
   explodeClustersOnNextCountySwitch = true
   activateCountyByRegion(region, resolvedLat, resolvedLng, resolvedName)
-}
-
-function normalizeCountyName(value) {
-  return String(value || '')
-    .toLowerCase()
-    .replace(/\b(county|parish|borough|census area)\b/g, '')
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim()
-}
-
-function shortCountyName(value) {
-  const raw = String(value || '').trim()
-  if (!raw) return ''
-  return raw
-    .replace(/\s+(County|Parish|Borough|Census Area)$/i, '')
-    .replace(/\s+City and Borough$/i, '')
-    .replace(/\s+City$/i, '')
-    .trim()
 }
 
 function activateCountyByRegion(countyRegion, lat = null, lng = null, countyName = '') {
@@ -2693,7 +2405,12 @@ async function checkApi() {
 }
 
 function normalizeEbirdApiKey(value) {
-  return String(value || '').trim()
+  const key = String(value || '').trim()
+  // Reject blank values and anything containing HTML/shell-special characters
+  // (guards against injection if the key is ever embedded in a string).
+  // eBird API keys are alphanumeric, typically 16–40 characters.
+  if (!key || key.length < 8 || key.length > 64 || /[<>"'`\s]/.test(key)) return ''
+  return key
 }
 
 function getStoredEbirdApiKey() {
@@ -2731,6 +2448,10 @@ function setStoredEbirdApiKey(value) {
 }
 
 function maybeSeedEbirdApiKeyFromUrl() {
+  // SECURITY NOTE: Passing API keys via URL parameters exposes them in server
+  // access logs, browser history, and HTTP Referer headers of any linked
+  // resources loaded before replaceState() runs.  Treat this as a convenience
+  // for device-to-device transfer only — never share such URLs publicly.
   const url = new URL(window.location.href)
   const candidates = ['ebird_api_key', 'ebirdKey', 'api_key']
   let seeded = false
@@ -2841,6 +2562,13 @@ function buildWorkerAuthHeaders(urlString) {
   return { 'X-eBirdApiToken': key }
 }
 
+class AuthError extends Error {
+  constructor(msg = 'API key required. Get a key from https://ebird.org/api/keygen and paste it here.') {
+    super(msg)
+    this.name = 'AuthError'
+  }
+}
+
 async function fetchWithTimeout(url, timeoutMs = API_TIMEOUT_MS) {
   const controller = new AbortController()
   const timer = window.setTimeout(() => controller.abort(), timeoutMs)
@@ -2860,7 +2588,9 @@ async function fetchWithTimeout(url, timeoutMs = API_TIMEOUT_MS) {
       // ignore metrics errors
     }
     if (response.status === 401) {
-      showApiKeyGate('API key required. Get a key from https://ebird.org/api/keygen and paste it here.')
+      const authError = new AuthError()
+      showApiKeyGate(authError.message)
+      throw authError
     }
     return response
   } catch (error) {
@@ -2959,59 +2689,6 @@ async function fetchCountyNotablesWithRetry(latitude, longitude, back = 14, coun
   throw lastError || new Error('County notable request failed')
 }
 
-function buildNotablesCacheKey(countyRegion) {
-  return countyRegion ? `notables:${countyRegion}` : null
-}
-
-function saveNotablesCache(countyRegion, result, meta = {}) {
-  const cacheKey = buildNotablesCacheKey(countyRegion)
-  if (!cacheKey) return
-  if (!Array.isArray(result?.observations) || result.observations.length === 0) return
-
-  try {
-    localStorage.setItem(cacheKey, JSON.stringify({
-      timestamp: Date.now(),
-      meta,
-      result,
-    }))
-  } catch {
-    // ignore storage errors
-  }
-}
-
-function loadNotablesCache(countyRegion, maxAgeMs = 6 * 60 * 60 * 1000) {
-  const cacheKey = buildNotablesCacheKey(countyRegion)
-  if (!cacheKey) return null
-
-  try {
-    const raw = localStorage.getItem(cacheKey)
-    if (!raw) return null
-    const parsed = JSON.parse(raw)
-    if (!parsed || typeof parsed !== 'object') return null
-    const age = Date.now() - Number(parsed.timestamp || 0)
-    if (!Number.isFinite(age) || age < 0 || age > maxAgeMs) return null
-    const result = parsed.result || null
-    if (result && typeof result === 'object' && parsed.meta && typeof parsed.meta === 'object') {
-      try {
-        result.__meta = parsed.meta
-      } catch {
-        // ignore
-      }
-    }
-    return result
-  } catch {
-    return null
-  }
-}
-
-function getCacheDaysBack(cached) {
-  const raw = Number(cached?.__meta?.daysBack)
-  if (!Number.isFinite(raw)) return null
-  const days = Math.round(raw)
-  if (days < 1 || days > 14) return null
-  return days
-}
-
 async function prefetchStateRarities(stateRegion, daysBack = statePrefetchDaysBack) {
   const normalizedState = String(stateRegion || '').toUpperCase()
   if (!/^US-[A-Z]{2}$/.test(normalizedState)) return
@@ -3039,32 +2716,6 @@ async function prefetchStateRarities(stateRegion, daysBack = statePrefetchDaysBa
     console.warn('[prefetch] state rarities failed:', normalizedState, e)
   } finally {
     statePrefetchInFlight.delete(normalizedState)
-  }
-}
-
-function countyContextCacheKey(lat, lng) {
-  return `county_context:${Number(lat).toFixed(2)},${Number(lng).toFixed(2)}`
-}
-
-function saveCountyContextCache(lat, lng, geojson) {
-  try {
-    localStorage.setItem(countyContextCacheKey(lat, lng), JSON.stringify({ timestamp: Date.now(), geojson }))
-  } catch {
-    // ignore storage errors
-  }
-}
-
-function loadCountyContextCache(lat, lng, maxAgeMs = 24 * 60 * 60 * 1000) {
-  try {
-    const raw = localStorage.getItem(countyContextCacheKey(lat, lng))
-    if (!raw) return null
-    const parsed = JSON.parse(raw)
-    if (!parsed?.geojson) return null
-    const age = Date.now() - Number(parsed.timestamp || 0)
-    if (!Number.isFinite(age) || age < 0 || age > maxAgeMs) return null
-    return parsed.geojson
-  } catch {
-    return null
   }
 }
 
@@ -3112,89 +2763,6 @@ async function fetchRegionRarities(region, back = 7, timeoutMs = API_TIMEOUT_MS,
   const data = await response.json()
   // API may return plain array or { observations: [] }
   return Array.isArray(data) ? data : (Array.isArray(data?.observations) ? data.observations : [])
-}
-
-function stateRegionFromCountyRegion(countyRegion) {
-  if (!countyRegion || !/^US-[A-Z]{2}-\d{3}$/.test(countyRegion)) return null
-  return countyRegion.slice(0, 5)
-}
-
-function isCountyRegionCode(region) {
-  return /^US-[A-Z]{2}-\d{3}$/.test(String(region || '').toUpperCase())
-}
-
-function getStateNameByRegion(stateRegion) {
-  const normalizedState = String(stateRegion || '').toUpperCase()
-  if (!/^US-[A-Z]{2}$/.test(normalizedState)) return normalizedState
-  const found = LOWER_48_STATES.find((state) => state.code === normalizedState)
-  return found?.name || normalizedState
-}
-
-function normalizeRingCoordinates(ring) {
-  if (!Array.isArray(ring) || ring.length < 3) return null
-  const points = ring
-    .map((point) => {
-      if (!Array.isArray(point) || point.length < 2) return null
-      const lng = Number(point[0])
-      const lat = Number(point[1])
-      if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null
-      return [lng, lat]
-    })
-    .filter(Boolean)
-
-  if (points.length < 3) return null
-
-  const first = points[0]
-  const last = points[points.length - 1]
-  if (first[0] !== last[0] || first[1] !== last[1]) {
-    points.push([first[0], first[1]])
-  }
-
-  return points
-}
-
-function buildInverseMaskFeaturesFromActiveFeatures(activeFeatures) {
-  const holes = []
-
-  ;(Array.isArray(activeFeatures) ? activeFeatures : []).forEach((feature) => {
-    const geometry = feature?.geometry
-    if (!geometry) return
-
-    if (geometry.type === 'Polygon' && Array.isArray(geometry.coordinates)) {
-      const outerRing = normalizeRingCoordinates(geometry.coordinates[0])
-      if (outerRing) holes.push(outerRing)
-      return
-    }
-
-    if (geometry.type === 'MultiPolygon' && Array.isArray(geometry.coordinates)) {
-      geometry.coordinates.forEach((polygonCoordinates) => {
-        if (!Array.isArray(polygonCoordinates)) return
-        const outerRing = normalizeRingCoordinates(polygonCoordinates[0])
-        if (outerRing) holes.push(outerRing)
-      })
-    }
-  })
-
-  if (!holes.length) return []
-
-  const worldRing = [
-    [-180, -90],
-    [-180, 90],
-    [180, 90],
-    [180, -90],
-    [-180, -90],
-  ]
-
-  return [{
-    type: 'Feature',
-    properties: {
-      isInverseMask: true,
-    },
-    geometry: {
-      type: 'Polygon',
-      coordinates: [worldRing, ...holes],
-    },
-  }]
 }
 
 function buildStateMaskGeojson(stateRegion, sourceGeojson) {
@@ -3421,43 +2989,6 @@ function drawCountyOverlay(geojson) {
   markMapPartReady('stateMask')
 }
 
-function formatObservationDate(rawValue) {
-  if (!rawValue) return '—'
-  const parsed = new Date(rawValue)
-  if (Number.isNaN(parsed.getTime())) return String(rawValue)
-  return parsed.toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit'
-  })
-}
-
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-}
-
-function parseFirstAvailableObsDate(...values) {
-  for (const value of values) {
-    const parsed = parseObsDate(value)
-    if (parsed) return parsed
-  }
-  return null
-}
-
-function getObservationGroupKey(item) {
-  const species = item?.comName || ''
-  const state = getItemStateAbbrev(item)
-  const county = getItemCountyName(item)
-  return `${species}::${state}::${county}`
-}
-
 function getDistanceAnchorPoint() {
   if (Number.isFinite(lastCountyAnchorLat) && Number.isFinite(lastCountyAnchorLng)) {
     return { lat: lastCountyAnchorLat, lng: lastCountyAnchorLng }
@@ -3489,109 +3020,6 @@ function computeClosestPointByGroup(observations, anchorLat, anchorLng) {
     }
   })
   return closest
-}
-
-function parseObsDate(obsDt) {
-  if (!obsDt) return null
-  if (obsDt instanceof Date) {
-    return Number.isNaN(obsDt.getTime()) ? null : obsDt
-  }
-  const raw = String(obsDt).trim()
-  if (!raw) return null
-
-  // eBird payloads often use date-only strings like "YYYY-MM-DD".
-  // JS parses those as UTC midnight, which can shift the local day and
-  // break day-based filtering/aggregation. Parse them as local dates.
-  const mDateOnly = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/)
-  if (mDateOnly) {
-    const year = Number(mDateOnly[1])
-    const month = Number(mDateOnly[2])
-    const day = Number(mDateOnly[3])
-    const d = new Date(year, month - 1, day)
-    return Number.isNaN(d.getTime()) ? null : d
-  }
-
-  // Normalize "YYYY-MM-DD HH:MM" (or with seconds) to ISO-ish local time.
-  // Safari is picky about space-separated timestamps.
-  const normalized = raw.replace(
-    /^(\d{4}-\d{2}-\d{2})\s+(\d{1,2}:\d{2}(?::\d{2})?)/,
-    (_, date, time) => `${date}T${time}`
-  )
-  const parsed = new Date(normalized)
-  return Number.isNaN(parsed.getTime()) ? null : parsed
-}
-
-function formatShortDate(date) {
-  if (!date) return ''
-  return `${date.getMonth() + 1}/${date.getDate()}`
-}
-
-function formatObsDateTime(obsDt) {
-  const d = parseObsDate(obsDt)
-  if (!d) return obsDt || 'Unknown date'
-  const mo = d.getMonth() + 1
-  const day = d.getDate()
-  const h = d.getHours()
-  const m = String(d.getMinutes()).padStart(2, '0')
-  const ampm = h >= 12 ? 'pm' : 'am'
-  const h12 = h % 12 || 12
-  return `${mo}/${day} - ${h12}:${m}${ampm}`
-}
-
-function formatObsDayMonthTime24(obsDt) {
-  const d = parseObsDate(obsDt)
-  if (!d) return obsDt || 'Unknown date'
-  const day = d.getDate()
-  const mo = d.getMonth() + 1
-  const h = String(d.getHours()).padStart(2, '0')
-  const m = String(d.getMinutes()).padStart(2, '0')
-  return `${day}/${mo} - ${h}:${m}`
-}
-
-function getLocationKeyForItem(item) {
-  const lat = Number(item?.lat)
-  const lng = Number(item?.lng)
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return ''
-  const locId = item?.locId ? String(item.locId) : ''
-  return locId || `${lat.toFixed(4)}|${lng.toFixed(4)}`
-}
-
-function buildLocationIndexForPopup(observations) {
-  const idx = new Map()
-  const source = Array.isArray(observations) ? observations : []
-  for (const item of source) {
-    const key = getLocationKeyForItem(item)
-    if (!key) continue
-    if (!idx.has(key)) idx.set(key, { seen: new Set(), items: [] })
-    const bucket = idx.get(key)
-
-    const species = String(item?.comName || 'Unknown species')
-    const code = getAbaCodeNumber(item)
-    const obsDtRaw = item?.obsDt ? String(item.obsDt) : ''
-    const subId = item?.subId ? String(item.subId) : ''
-    const uniq = `${species}|${subId}|${obsDtRaw}`
-    if (bucket.seen.has(uniq)) continue
-    bucket.seen.add(uniq)
-    bucket.items.push({
-      species,
-      abaCode: code,
-      obsDt: obsDtRaw || null,
-      subId: subId || null,
-    })
-  }
-
-  const out = new Map()
-  idx.forEach((bucket, key) => out.set(key, Array.isArray(bucket?.items) ? bucket.items : []))
-  return out
-}
-
-function dayOffsetFromToday(date) {
-  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return null
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const target = new Date(date)
-  target.setHours(0, 0, 0, 0)
-  return Math.round((today.getTime() - target.getTime()) / 86400000)
 }
 
 function getDateBubbleClass(kind, firstDate, lastDate) {
@@ -3653,25 +3081,10 @@ function renderSpeciesStatusBullets(species) {
     .join('')
 }
 
-function isConfirmedObservation(item) {
-  if (item && typeof item.confirmedAny === 'boolean') return item.confirmedAny
-  return Number(item?.obsReviewed) === 1 && Number(item?.obsValid) === 1
-}
-
 function renderStatusDot(isConfirmed) {
   const cls = isConfirmed ? 'status-dot-confirmed' : 'status-dot-pending'
   const title = isConfirmed ? 'Confirmed' : 'Pending'
   return `<span class="status-dot ${cls}" title="${title}"></span>`
-}
-
-function getItemStateAbbrev(item) {
-  const code = String(item?.subnational1Code || '')
-  if (!code) return ''
-  return code.includes('-') ? (code.split('-').pop() || '') : code
-}
-
-function getItemCountyName(item) {
-  return String(item?.subnational2Name || item?.subnational2Code || '')
 }
 
 function buildGroupedRowsFromObservations(observations) {
@@ -4616,10 +4029,10 @@ function buildObservationPopupHtml(pt) {
     if (focusSpecies) {
       const code = escapeHtml(getSpeciesMapLabel(focusSpecies))
       const name = escapeHtml(focusSpecies)
-      return `<div class="obs-popup-header"><span class="obs-popup-code">${code}</span><span class="obs-popup-species obs-popup-species-small">${name}</span><a class="obs-popup-mapit" href="${mapsUrl}" target="_blank" rel="noopener" title="Map it">&#x1F4CD;</a></div>`
+      return `<div class="obs-popup-header"><span class="obs-popup-code">${code}</span><span class="obs-popup-species obs-popup-species-small">${name}</span><a class="obs-popup-mapit" href="${mapsUrl}" target="_blank" rel="noopener noreferrer" title="Map it">&#x1F4CD;</a></div>`
     }
     const label = escapeHtml(speciesCount === 1 ? String(speciesList[0] || '') : `${speciesCount || 0} species`)
-    return `<div class="obs-popup-header"><span class="obs-popup-species">${label}</span><a class="obs-popup-mapit" href="${mapsUrl}" target="_blank" rel="noopener" title="Map it">&#x1F4CD;</a></div>`
+    return `<div class="obs-popup-header"><span class="obs-popup-species">${label}</span><a class="obs-popup-mapit" href="${mapsUrl}" target="_blank" rel="noopener noreferrer" title="Map it">&#x1F4CD;</a></div>`
   })()
 
   const countyRaw = item?.subnational2Name ? String(item.subnational2Name) : ''
@@ -4631,7 +4044,7 @@ function buildObservationPopupHtml(pt) {
 
   const locationLink = locName
     ? (locId
-      ? `<a class="obs-popup-location" href="https://ebird.org/hotspot/${encodeURIComponent(locId)}" target="_blank" rel="noopener" title="${escapeHtml(locName)}">${escapeHtml(locName)}</a>`
+      ? `<a class="obs-popup-location" href="https://ebird.org/hotspot/${encodeURIComponent(locId)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(locName)}">${escapeHtml(locName)}</a>`
       : `<span class="obs-popup-location" title="${escapeHtml(locName)}">${escapeHtml(locName)}</span>`)
     : ''
 
@@ -4662,7 +4075,7 @@ function buildObservationPopupHtml(pt) {
     const dt = formatObsDateTime(o?.obsDt)
     const sid = o?.subId ? String(o.subId) : ''
     const listHtml = sid
-      ? `<a href="https://ebird.org/checklist/${encodeURIComponent(sid)}" target="_blank" rel="noopener">list</a>`
+      ? `<a href="https://ebird.org/checklist/${encodeURIComponent(sid)}" target="_blank" rel="noopener noreferrer">list</a>`
       : '<span>list unavailable</span>'
     return `<li><span>${escapeHtml(dt)}</span> · ${listHtml}</li>`
   }
@@ -5334,6 +4747,7 @@ async function loadCountyNotables(latitude, longitude, countyRegion = null, requ
     updateRuntimeLog()
   } catch (error) {
     console.error('County notables unavailable:', error)
+    if (error?.name === 'AuthError') return
     if (isStaleNotablesLoad(notablesLoadId, requestId, countySwitchRequestId)) {
       return
     }
@@ -5498,6 +4912,7 @@ async function loadStateNotables(stateRegion, requestId = null) {
     markMapPartReady('observations')
   } catch (error) {
     if (isStaleNotablesLoad(notablesLoadId, requestId)) return
+    if (error?.name === 'AuthError') return
     console.error('loadStateNotables error:', error)
     notableCount.className = 'badge warn'
     notableCount.textContent = '0'
@@ -5559,6 +4974,7 @@ async function loadNationalNotables(regionCode = US_REGION_CODE, abaMinFloor = 3
     markMapPartReady('observations')
   } catch (error) {
     if (isStaleNotablesLoad(notablesLoadId, requestId)) return
+    if (error?.name === 'AuthError') return
     console.error('loadNationalNotables error:', error)
     notableCount.className = 'badge warn'
     notableCount.textContent = '0'
@@ -5640,6 +5056,7 @@ async function loadNeighborCounty(lat, lng, countyRegion, countyName) {
     await loadCountyNotables(targetLat, targetLng, resolvedCountyRegion, null, countySwitchRequestId, true)
   } catch (error) {
     console.error('loadNeighborCounty failed:', error)
+    if (error?.name === 'AuthError') return
     if (!isStaleCountySwitchRequest(countySwitchRequestId)) {
       setMapLoading(false)
       restoreFromRecoverySnapshot('county-switch-error')
@@ -5922,6 +5339,7 @@ searchApplyBtn?.addEventListener('click', async () => {
     searchPopover?.setAttribute('hidden', 'hidden')
   } catch (error) {
     console.error('search apply failed:', error)
+    if (error?.name === 'AuthError') return
     setMapLoading(false)
     restoreFromRecoverySnapshot('search-apply-error')
     updateRuntimeLog()
@@ -5957,9 +5375,6 @@ function focusMapOnUserLocation() {
 
 menuPinBtn?.addEventListener('click', () => {
   focusMapOnUserLocation()
-})
-menuRefreshBtn?.addEventListener('click', () => {
-  void triggerHardRefresh()
 })
 
 bottomReloadBtn?.addEventListener('click', () => {
@@ -6156,7 +5571,7 @@ notableRows.addEventListener('click', (event) => {
     if (lat && lng) {
       window.open(
         `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${lat},${lng}`)}`,
-        '_blank', 'noopener'
+        '_blank', 'noopener,noreferrer'
       )
     }
     return
@@ -6345,14 +5760,17 @@ async function bootAppOnce() {
 
   const launchUrl = new URL(window.location.href)
   const forceFreshLocation = launchUrl.searchParams.get('force_location') === '1'
-  if (forceFreshLocation) {
-    launchUrl.searchParams.delete('force_location')
-    window.history.replaceState({}, '', launchUrl.toString())
-  }
+  const prefetchBackParam = launchUrl.searchParams.get('prefetch_back')
+  // Clean up all transient URL params injected by triggerHardRefresh or external tools
+  // to avoid them persisting in the address bar and browser history.
+  let urlMutated = false
+  if (forceFreshLocation) { launchUrl.searchParams.delete('force_location'); urlMutated = true }
+  if (launchUrl.searchParams.has('refresh')) { launchUrl.searchParams.delete('refresh'); urlMutated = true }
+  if (prefetchBackParam !== null) { launchUrl.searchParams.delete('prefetch_back'); urlMutated = true }
+  if (urlMutated) window.history.replaceState({}, '', launchUrl.toString())
 
   // Optional perf tuning: prefetch a whole state's rarities in the background.
   // Useful for avoiding many subsequent county calls when navigating within a state.
-  const prefetchBackParam = launchUrl.searchParams.get('prefetch_back')
   if (prefetchBackParam != null && prefetchBackParam !== '') {
     const parsed = Number(prefetchBackParam)
     if (Number.isFinite(parsed)) {

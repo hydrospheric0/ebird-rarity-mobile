@@ -1,4 +1,5 @@
 import { defineConfig, loadEnv } from 'vite'
+import { PROD_WORKER_URL } from './src/config/worker-url.js'
 
 const buildTag = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14)
 
@@ -18,7 +19,7 @@ export default defineConfig(({ command, mode }) => {
     server: {
       proxy: {
         '/worker': {
-          target: explicitApiBase || 'https://ebird-rarity-mapper.bartwickel.workers.dev',
+          target: explicitApiBase || PROD_WORKER_URL,
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/worker/, '')
         }
