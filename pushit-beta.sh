@@ -24,6 +24,7 @@ set -euo pipefail
 # ── CONFIG — edit these ────────────────────────────────────────────────────
 BETA_REPO_URL="${BETA_REPO_URL:-https://github.com/hydrospheric0/ebird-rarity-mobile-beta.git}"
 BETA_PAGES_BRANCH="gh-pages"
+BETA_SOURCE_BRANCH="main"
 SOURCE_BRANCH="feat/international"
 BETA_VERSION_FILE=".beta-version"   # tracked on feat/international only
 DEFAULT_VITE_API_BASE_URL="https://ebird-rarity-mapper.bartwickel.workers.dev"
@@ -154,6 +155,9 @@ fi
 echo "📤 Pushing feat/international to origin/$SOURCE_BRANCH..."
 git push -u origin "$SOURCE_BRANCH"
 
+echo "📤 Mirroring beta source to $BETA_REPO_URL ($BETA_SOURCE_BRANCH)..."
+git push --force "$BETA_REPO_URL" HEAD:"$BETA_SOURCE_BRANCH"
+
 # ── Tag with beta version ─────────────────────────────────────────────────
 git fetch --tags origin >/dev/null 2>&1 || true
 release_tag="v${next_version}"
@@ -219,7 +223,7 @@ BETA_OWNER="$(echo "$BETA_REPO_URL" | sed 's|.*github.com/||;s|/.*||')"
 
 echo ""
 echo "✅ Beta deploy complete!"
-echo "   Source   → https://github.com/${BETA_OWNER}/${BETA_REPO_NAME}/tree/$SOURCE_BRANCH"
+echo "   Source   → https://github.com/${BETA_OWNER}/${BETA_REPO_NAME}/tree/$BETA_SOURCE_BRANCH"
 echo "   Beta app → https://${BETA_OWNER}.github.io/${BETA_REPO_NAME}/"
 echo "   Version  → ${next_version}"
 echo ""
