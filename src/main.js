@@ -5,7 +5,7 @@ import { API_BASE_URL, fetchWorkerHealth } from './config/api.js'
 import { getYoloSpeciesInfo, getSpeciesMapLabel, getAbaCodeOverride } from './data/species-reference.js'
 import {
   distanceKm, pointInRing, pointInPolygon, featureContainsPoint,
-  normalizeRingCoordinates, buildInverseMaskFeaturesFromActiveFeatures,
+  normalizeRingCoordinates, buildInverseMaskFeaturesFromActiveFeatures, getFeatureVisualCenter,
 } from './modules/geo.js'
 import {
   US_REGION_CODE, LOWER_48_STATES, ALL_REGIONS, STATE_CENTERS, LEAF_SUBNATIONAL1_COUNTRIES,
@@ -1298,10 +1298,9 @@ function buildCountyGeojsonWithActiveRegion(sourceGeojson, countyRegion) {
 
 function getFeatureCenter(feature) {
   try {
-    const layer = L.geoJSON(feature)
-    const bounds = layer.getBounds()
-    if (!bounds.isValid()) return null
-    return bounds.getCenter()
+    const center = getFeatureVisualCenter(feature)
+    if (!center) return null
+    return { lat: center.lat, lng: center.lng }
   } catch {
     return null
   }

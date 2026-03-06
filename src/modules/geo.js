@@ -140,3 +140,144 @@ export function buildInverseMaskFeaturesFromActiveFeatures(activeFeatures) {
     },
   }]
 }
+
+function getRingAreaAndCentroid(ring) {
+  const normalized = normalizeRingCoordinates(ring)
+  if (!normalized || normalized.length < 4) return null
+
+  let twiceArea = 0
+  let centroidLngTimes6Area = 0
+  let centroidLatTimes6Area = 0
+
+  for (let index = 0; index < normalized.length - 1; index += 1) {
+    const [x1, y1] = normalized[index]
+    const [x2, y2] = normalized[index + 1]
+    const cross = (x1 * y2) - (x2 * y1)
+    twiceArea += cross
+    centroidLngTimes6Area += (x1 + x2) * cross
+    centroidLatTimes6Area += (y1 + y2) * cross
+  }
+
+  if (Math.abs(twiceArea) < 1e-12) return null
+
+  return {
+    area: twiceArea / 2,
+    lng: centroidLngTimes6Area / (3 * twiceArea),
+    lat: centroidLatTimes6Area / (3 * twiceArea),
+  }
+}
+
+function getPolygonAreaAndCentroid(polygonCoords) {
+  if (!Array.isArray(polygonCoords) || polygonCoords.length === 0) return null
+
+  const outer = getRingAreaAndCentroid(polygonCoords[0])
+  if (!outer) return null
+
+  let weightedArea = Math.abs(outer.area)
+  let weightedLng = outer.lng * weightedArea
+  let weightedLat = outer.lat * weightedArea
+
+  for (let index = 1; index < polygonCoords.length; index += 1) {
+    const hole = getRingAreaAndCentroid(polygonCoords[index])
+    if (!hole) continue
+    const holeArea = Math.abs(hole.area)
+    weightedArea -= holeArea
+    weightedLng -= hole.lng * holeArea
+    weightedLat -= hole.lat * holeArea
+  }
+
+  if (weightedArea <= 1e-12) {
+    return { area: Math.abs(outer.area), lng: outer.lng, lat: outer.lat }
+  }
+
+  return {
+    area: weightedArea,
+    lng: weightedLng / weightedArea,
+    lat: weightedLat / weightedArea,
+  }
+}
+
+function getFeatureBoundingBox(feature) {
+  const geometry = feature?.geometry
+  if (!geometry) return null
+  const coords = []
+
+  if (geometry.type === 'Polygon') coords.push(geometry.coordinates)
+  else if (geometry.type === 'MultiPolygon') coords.push(...(Array.isArray(geometry.coordinates) ? geometry.coordinates : []))
+  else return null
+
+  let minLng = Infinity
+  let maxLng = -Infinity
+  let minLat = Infinity
+  let maxLat = -Infinity
+
+  coords.forEach((polygon) => {
+    ;(Array.isArray(polygon) ? polygon : []).forEach((ring) => {
+      ;(Array.isArray(ring) ? ring : []).forEach((point) => {
+        const lng = Number(point?.[0])
+        const lat = Number(point?.[1])
+        if (!Number.isFinite(lng) || !Number.isFinite(lat)) return
+        if (lng < minLng) minLng = lng
+        if (lng > maxLng) maxLng = lng
+        if (lat < minLat) minLat = lat
+        if (lat > maxLat) maxLat = lat
+      })
+    })
+  })
+
+  if (!Number.isFinite(minLng) || !Number.isFinite(maxLng) || !Number.isFinite(minLat) || !Number.isFinite(maxLat)) return null
+  return { minLng, maxLng, minLat, maxLat }
+}
+
+function findInteriorPointNearTarget(feature, targetLng, targetLat) {
+  const bbox = getFeatureBoundingBox(feature)
+  if (!bbox) return null
+
+  const { minLng, maxLng, minLat, maxLat } = bbox
+  const steps = 12
+  let best = null
+  let bestDistance = Infinity
+
+  for (let y = 0; y <= steps; y += 1) {
+    const lat = minLat + ((maxLat - minLat) * y) / steps
+    for (let x = 0; x <= steps; x += 1) {
+      const lng = minLng + ((maxLng - minLng) * x) / steps
+      if (!featureContainsPoint(feature, lng, lat)) continue
+      const distanceSq = ((lng - targetLng) ** 2) + ((lat - targetLat) ** 2)
+      if (distanceSq < bestDistance) {
+        bestDistance = distanceSq
+        best = { lng, lat }
+      }
+    }
+  }
+
+  return best
+}
+
+export function getFeatureVisualCenter(feature) {
+  const geometry = feature?.geometry
+  if (!geometry) return null
+
+  const polygons = geometry.type === 'Polygon'
+    ? [geometry.coordinates]
+    : (geometry.type === 'MultiPolygon' && Array.isArray(geometry.coordinates) ? geometry.coordinates : null)
+
+  if (!polygons || !polygons.length) return null
+
+  const polygonCenters = polygons
+    .map((polygon) => getPolygonAreaAndCentroid(polygon))
+    .filter(Boolean)
+    .sort((a, b) => b.area - a.area)
+
+  if (!polygonCenters.length) return null
+
+  const primary = polygonCenters[0]
+  if (featureContainsPoint(feature, primary.lng, primary.lat)) {
+    return { lng: primary.lng, lat: primary.lat }
+  }
+
+  const interior = findInteriorPointNearTarget(feature, primary.lng, primary.lat)
+  if (interior) return interior
+
+  return { lng: primary.lng, lat: primary.lat }
+}
