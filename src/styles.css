@@ -8,6 +8,7 @@
   --accent: #009688;
   --border: rgba(15, 23, 42, 0.12);
   --map-strip-height: 40dvh;
+  --header-height: 3.4rem;
   --bottom-select-height: 2.85rem;
   --bottom-aba-height: 0rem;
   --bottom-menu-height: calc(var(--bottom-select-height) + var(--bottom-aba-height));
@@ -43,8 +44,9 @@ body {
 .app-header {
   background: var(--brand);
   color: #f8fafc;
-  height: var(--bottom-aba-height);
+  height: var(--header-height);
   padding: 0 0.7rem;
+  overflow: hidden;
   border-bottom: 1px solid rgba(255, 255, 255, 0.18);
   position: relative;
   display: flex;
