@@ -10,7 +10,7 @@
   --map-strip-height: 40dvh;
   --bottom-tab-height: 3.2rem;
   --bottom-loc-height: 2.75rem;
-  --bottom-aba-filter-height: 2.6rem;
+  --bottom-aba-filter-height: 0rem;
   --bottom-menu-height: calc(var(--bottom-tab-height) + var(--bottom-loc-height) + var(--bottom-aba-filter-height));
   /* legacy aliases kept for pickers that still reference them */
   --bottom-select-height: calc(var(--bottom-tab-height) + var(--bottom-loc-height));
@@ -718,6 +718,7 @@ body.is-resizing {
 
 /* ABA filter bar — topmost of the 3 bottom bars */
 .bottom-aba-filter-bar {
+  display: none;
   position: fixed;
   left: 0;
   right: 0;

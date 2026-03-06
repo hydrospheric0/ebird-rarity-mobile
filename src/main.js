@@ -1259,6 +1259,19 @@ function updateCountyDots() {
   if (!map || !countyPickerOptions.length) return
   const showCountyNames = map.getZoom() > 10
 
+  // Build a polygon-centroid lookup from the current county GeoJSON so dots are
+  // placed at the geographic centre of each county rather than at a random
+  // observation location inside it.
+  const polygonCentroidByRegion = new Map()
+  const geoFeatures = Array.isArray(latestCountyContextGeojson?.features) ? latestCountyContextGeojson.features : []
+  for (const feat of geoFeatures) {
+    const region = String(feat?.properties?.countyRegion || feat?.properties?.subnational2Code || feat?.properties?.subnational1Code || '').toUpperCase()
+    if (!region) continue
+    if (polygonCentroidByRegion.has(region)) continue
+    const center = getFeatureCenter(feat)
+    if (center) polygonCentroidByRegion.set(region, center)
+  }
+
   const activeRegion = String(currentCountyRegion || '').toUpperCase()
   const activeCountyCode = String(currentActiveCountyCode || '').toUpperCase()
   const isStateMode = isStateRegionCode(activeRegion) && !isCountyRegionCode(activeCountyCode)
@@ -1352,7 +1365,12 @@ function updateCountyDots() {
     const iconSize = showCountyNames ? [88, 38] : [28, 28]
     const iconAnchor = showCountyNames ? [44, 22] : [14, 14]
 
-    const dot = L.marker([opt.lat, opt.lng], {
+    // Prefer polygon centroid for dot placement; fall back to observation lat/lng.
+    const centroid = polygonCentroidByRegion.get(countyRegion)
+    const dotLat = centroid ? centroid.lat : opt.lat
+    const dotLng = centroid ? centroid.lng : opt.lng
+
+    const dot = L.marker([dotLat, dotLng], {
       pane: 'countyDotPane',
       icon: L.divIcon({
         className: 'county-dot-icon',
