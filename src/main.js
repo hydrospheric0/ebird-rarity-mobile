@@ -8,7 +8,7 @@ import {
   normalizeRingCoordinates, buildInverseMaskFeaturesFromActiveFeatures,
 } from './modules/geo.js'
 import {
-  US_REGION_CODE, LOWER_48_STATES, ALL_REGIONS, STATE_CENTERS,
+  US_REGION_CODE, LOWER_48_STATES, ALL_REGIONS, STATE_CENTERS, LEAF_SUBNATIONAL1_COUNTRIES,
   isCountyRegionCode, isStateRegionCode, stateRegionFromCountyRegion, stateRegionFromAnyRegion,
   getStateNameByRegion, getStateAbbrevByRegion, normalizeCountyName, shortCountyName, escapeHtml,
 } from './modules/region-utils.js'
@@ -199,18 +199,25 @@ app.innerHTML = `
       <section id="panelTable" class="panel"></section>
     </main>
 
-    <div class="bottom-aba-bar" aria-label="ABA summary">
+    <!-- ABA filter bar — shows interactive ABA code filter pills -->
+    <div class="bottom-aba-filter-bar" aria-label="ABA code filter">
       <button id="shareTableBtn" class="aba-share-btn" type="button" hidden aria-label="Share list" title="Share visible list">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
       </button>
       <div id="topAbaPills" class="top-aba-pills" aria-label="ABA counts"></div>
     </div>
 
-    <nav class="bottom-menu bottom-select-menu" aria-label="Selection bar">
-      <button id="modeToggleBtn" class="menu-btn bottom-mode-btn" type="button" aria-label="Toggle Species mode" aria-pressed="false" title="Toggle Species mode">⇅</button>
-      <button id="headerStateBtn" class="top-menu-select top-menu-btn bottom-select" type="button" aria-label="State" title="Choose state">CA</button>
-      <select id="headerStateSelect" class="top-menu-select" aria-label="State" hidden aria-hidden="true" tabindex="-1">
-        <option value="US-CA">California</option>
+    <!-- Location bar — country + province/state + county selectors + days back + reload -->
+    <div class="bottom-location-bar" aria-label="Location">
+      <button id="headerCountryBtn" class="loc-btn bottom-select" type="button" aria-label="Country" title="Choose country">NL</button>
+      <select id="headerCountrySelect" class="loc-select" aria-label="Country" hidden aria-hidden="true" tabindex="-1">
+        <option value="NL">Netherlands</option>
+        <option value="US">United States</option>
+      </select>
+
+      <button id="headerStateBtn" class="top-menu-select top-menu-btn bottom-select" type="button" aria-label="Province/State" title="Choose province/state">-</button>
+      <select id="headerStateSelect" class="top-menu-select" aria-label="Province/State" hidden aria-hidden="true" tabindex="-1">
+        <option value="NL">Netherlands</option>
       </select>
 
       <button id="headerCountyBtn" class="top-menu-select top-menu-btn bottom-select" type="button" aria-label="County" title="Choose county">Loading…</button>
@@ -232,6 +239,26 @@ app.innerHTML = `
           <polyline points="23 4 23 10 17 10" />
           <path d="M20.49 15a9 9 0 1 1 2.13-9" />
         </svg>
+      </button>
+    </div>
+
+    <!-- Mode tab bar — 4 view modes at the very bottom -->
+    <nav id="modeTabBar" class="bottom-mode-tab-bar" aria-label="View mode">
+      <button class="mode-tab mode-tab--active" data-mode="hybrid" type="button" aria-pressed="true">
+        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="9" rx="1"/><rect x="3" y="14" width="18" height="7" rx="1"/></svg>
+        <span>Hybrid</span>
+      </button>
+      <button class="mode-tab" data-mode="list" type="button" aria-pressed="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="3" cy="6" r="1" fill="currentColor" stroke="none"/><circle cx="3" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="3" cy="18" r="1" fill="currentColor" stroke="none"/></svg>
+        <span>List</span>
+      </button>
+      <button class="mode-tab" data-mode="map" type="button" aria-pressed="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
+        <span>Map</span>
+      </button>
+      <button class="mode-tab" data-mode="species" type="button" aria-pressed="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="22" y2="22"/></svg>
+        <span>Species</span>
       </button>
     </nav>
 
@@ -304,7 +331,10 @@ const headerCountyBtn = document.querySelector('#headerCountyBtn')
 const headerSpeciesBtn = document.querySelector('#headerSpeciesBtn')
 const headerStateSelect = document.querySelector('#headerStateSelect')
 const headerStateBtn = document.querySelector('#headerStateBtn')
-const modeToggleBtn = document.querySelector('#modeToggleBtn')
+const headerCountryBtn = document.querySelector('#headerCountryBtn')
+const headerCountrySelect = document.querySelector('#headerCountrySelect')
+const modeTabBar = document.querySelector('#modeTabBar')
+const modeToggleBtn = null // removed in UI revamp — kept as null for safe compat
 const filterAbaMinInput = document.querySelector('#filterAbaMin')
 const filterAbaMinValue = document.querySelector('#filterAbaMinValue')
 const statusPopover = document.querySelector('#statusPopover')
@@ -351,7 +381,7 @@ const notableCount = document.querySelector('#notableCount')
 const notableMeta = document.querySelector('#notableMeta')
 const shareTableBtn = document.querySelector('#shareTableBtn')
 const topAbaPills = document.querySelector('#topAbaPills')
-const bottomAbaBar = document.querySelector('.bottom-aba-bar')
+const bottomAbaBar = document.querySelector('.bottom-aba-filter-bar')
 const countyPicker = document.querySelector('#countyPicker')
 const countyPickerList = document.querySelector('#countyPickerList')
 const pickerAbaPills = document.querySelector('#pickerAbaPills')
@@ -525,7 +555,7 @@ let latestMapRenderId = 0
 let lastFilteredObservations = []
 let lastFilteredObservationsNoSpecies = []
 let lastFilteredRegion = null
-let isSpeciesMode = false
+let currentMode = 'hybrid' // 'hybrid' | 'list' | 'map' | 'species'
 let speciesPickerOptions = []
 let explodeClustersOnNextCountySwitch = false
 let mapFitMaxZoomOnce = null
@@ -863,11 +893,28 @@ function updateSpeciesButtonLabel() {
 }
 
 function syncSpeciesModeUi() {
-  if (!modeToggleBtn || !headerCountyBtn || !headerSpeciesBtn) return
-  modeToggleBtn.setAttribute('aria-pressed', String(isSpeciesMode))
-  modeToggleBtn.classList.toggle('active', isSpeciesMode)
-  headerCountyBtn.toggleAttribute('hidden', isSpeciesMode)
-  headerSpeciesBtn.toggleAttribute('hidden', !isSpeciesMode)
+  const isSpeciesMode = currentMode === 'species'
+  if (headerCountyBtn) headerCountyBtn.toggleAttribute('hidden', isSpeciesMode)
+  if (headerSpeciesBtn) headerSpeciesBtn.toggleAttribute('hidden', !isSpeciesMode)
+  // sync mode tab bar active state
+  if (modeTabBar) {
+    modeTabBar.querySelectorAll('.mode-tab').forEach((btn) => {
+      const active = btn.dataset.mode === currentMode
+      btn.classList.toggle('mode-tab--active', active)
+      btn.setAttribute('aria-pressed', String(active))
+    })
+  }
+}
+
+function refreshLocationBar() {
+  if (!headerCountryBtn) return
+  // derive country from current region
+  const stateRegion = stateRegionFromAnyRegion(currentCountyRegion) || 'NL'
+  const isNl = LEAF_SUBNATIONAL1_COUNTRIES.has(stateRegion)
+  const isUs = stateRegion.startsWith('US')
+  headerCountryBtn.textContent = isNl ? 'NL' : isUs ? 'USA' : stateRegion.split('-')[0] || stateRegion
+  // In NL (LEAF) mode, the state button is unnecessary — hide it
+  if (headerStateBtn) headerStateBtn.toggleAttribute('hidden', isNl)
 }
 
 function closeSpeciesPicker() {
@@ -1063,7 +1110,7 @@ function zoomToActiveCounty(geojson, countyRegion = null, options = {}) {
 function zoomToStateBounds(geojson, stateRegion) {
   if (!map || !geojson || !Array.isArray(geojson.features)) return false
   const normalizedState = String(stateRegion || '').toUpperCase()
-  if (!/^US-[A-Z]{2}$/.test(normalizedState)) return false
+  if (!isStateRegionCode(normalizedState)) return false
   const prefix = `${normalizedState}-`
   const stateFeatures = geojson.features.filter((feature) => {
     const countyRegion = String(feature?.properties?.countyRegion || feature?.properties?.subnational2Code || '').toUpperCase()
@@ -1109,7 +1156,7 @@ function getCountySummary(region, isActive) {
 
 function getStateSummary(stateRegion, isActive) {
   const region = String(stateRegion || '').toUpperCase()
-  if (!/^US-[A-Z]{2}$/.test(region)) return null
+  if (!isStateRegionCode(region)) return null
 
   const activeRegion = String(currentCountyRegion || '').toUpperCase()
   const canDeriveFromCurrent = activeRegion === region || activeRegion === US_REGION_CODE
@@ -1480,7 +1527,7 @@ function refreshHeaderCountyOptions() {
     return
   }
   const activeRegion = String(currentCountyRegion || '').toUpperCase()
-  const isStateOrUsContext = activeRegion === US_REGION_CODE || /^US-[A-Z]{2}$/.test(activeRegion)
+  const isStateOrUsContext = activeRegion === US_REGION_CODE || isStateRegionCode(activeRegion)
   headerCountySelect.innerHTML = ''
 
   // In state/US context there is no active county; keep header as "Select County".
@@ -1530,7 +1577,7 @@ function refreshHeaderCountyOptions() {
 
 function refreshHeaderStateOptions() {
   if (!headerStateSelect || !headerStateBtn) return
-  const activeState = stateRegionFromAnyRegion(currentCountyRegion) || 'US-CA'
+  const activeState = stateRegionFromAnyRegion(currentCountyRegion) || 'NL'
   const usEntry = { code: US_REGION_CODE, name: 'United States \u2014 All' }
   const options = [usEntry, ...ALL_REGIONS]
 
@@ -1545,6 +1592,7 @@ function refreshHeaderStateOptions() {
   headerStateBtn.textContent = abbrev
   const stateObj = options.find((s) => s.code === activeState)
   headerStateBtn.title = stateObj ? stateObj.name : 'Choose state'
+  refreshLocationBar()
 }
 
 function closeStatePicker() {
@@ -1562,7 +1610,7 @@ function toggleStatePicker() {
 
 function renderStatePickerOptions() {
   if (!statePickerList) return
-  const activeState = stateRegionFromAnyRegion(currentCountyRegion) || 'US-CA'
+  const activeState = stateRegionFromAnyRegion(currentCountyRegion) || 'NL'
   const usEntry = { code: US_REGION_CODE, name: 'United States — All' }
   const allOptions = [usEntry, ...ALL_REGIONS]
   statePickerList.innerHTML = allOptions
@@ -1590,7 +1638,7 @@ async function activateStateByRegion(stateRegion) {
     renderStatePickerOptions()
     return
   }
-  if (!/^US-[A-Z]{2}$/.test(normalized)) return
+  if (!isStateRegionCode(normalized)) return
   resetFiltersForCountySwitch()
   refreshHeaderStateOptions()
   renderStatePickerOptions()
@@ -1747,7 +1795,7 @@ function activateCountyFromOption(option) {
     const headerIndex = countyPickerOptions.findIndex((opt) => String(opt.countyRegion || '').toUpperCase() === region)
     if (headerIndex >= 0) {
       const activeRegion = String(currentCountyRegion || '').toUpperCase()
-      const hasPlaceholder = activeRegion === US_REGION_CODE || /^US-[A-Z]{2}$/.test(activeRegion)
+      const hasPlaceholder = activeRegion === US_REGION_CODE || isStateRegionCode(activeRegion)
       headerCountySelect.selectedIndex = hasPlaceholder ? (1 + headerIndex) : headerIndex
     }
   }
@@ -1941,7 +1989,7 @@ async function ensureSearchCountyOptionsForState(stateRegion) {
     setSearchCountyIdleMessage('County select disabled for US')
     return
   }
-  if (!/^US-[A-Z]{2}$/.test(normalizedState)) {
+  if (!isStateRegionCode(normalizedState)) {
     if (requestId !== latestSearchCountyOptionsRequestId) return
     setSearchCountyIdleMessage('Select state first')
     return
@@ -2170,7 +2218,7 @@ function initializeMap() {
     markerZoomAnimation: false,
     wheelDebounceTime: 45,
     wheelPxPerZoomLevel: 190,
-  }).setView([39.5, -98.35], 5)
+  }).setView([52.3, 5.3], 7)
   mapPointRenderer = L.canvas({ padding: 0.5 })
 
   map.createPane('countyMaskPane')
@@ -2242,7 +2290,7 @@ function initializeMap() {
       applyHiResCountyOutline(currentCountyRegion)
     } else if (latestCountyContextGeojson) {
       const overlayRegion = String(latestCountyContextGeojson?.activeCountyRegion || '').toUpperCase()
-      const isStateOverlayMode = /^US-[A-Z]{2}$/.test(overlayRegion)
+      const isStateOverlayMode = isStateRegionCode(overlayRegion)
       const activeFeatures = Array.isArray(latestCountyContextGeojson?.features)
         ? latestCountyContextGeojson.features.filter((f) => f?.properties?.isActiveCounty)
         : []
@@ -2311,14 +2359,32 @@ function updateCountyLineColors() {
 }
 
 function setMode(mode) {
-  const showingMap = mode === 'map'
-  panelMap.classList.toggle('active', showingMap)
-  panelTable.classList.toggle('active', !showingMap)
+  const validModes = ['hybrid', 'list', 'map', 'species']
+  currentMode = validModes.includes(mode) ? mode : 'hybrid'
 
-  if (showingMap) {
+  // data-mode on appShell drives CSS-level layout switching
+  if (appShell) appShell.dataset.mode = currentMode
+
+  // panelMap holds the table card; always active except in map-only mode
+  const showTable = currentMode !== 'map'
+  if (panelMap) panelMap.classList.toggle('active', showTable)
+  if (panelTable) panelTable.classList.toggle('active', false)
+
+  if (currentMode === 'map' || currentMode === 'hybrid') {
     initializeMap()
-    window.setTimeout(() => map.invalidateSize(), 150)
+    window.setTimeout(() => map && map.invalidateSize(), 150)
   }
+
+  // species mode: auto-open the species picker
+  if (currentMode === 'species') {
+    closeCountyPicker()
+    if (speciesPicker) speciesPicker.removeAttribute('hidden')
+  } else {
+    closeSpeciesPicker()
+  }
+
+  syncSpeciesModeUi()
+  refreshLocationBar()
 }
 
 async function triggerHardRefresh() {
@@ -2692,7 +2758,7 @@ async function fetchCountyNotablesWithRetry(latitude, longitude, back = 14, coun
 
 async function prefetchStateRarities(stateRegion, daysBack = statePrefetchDaysBack) {
   const normalizedState = String(stateRegion || '').toUpperCase()
-  if (!/^US-[A-Z]{2}$/.test(normalizedState)) return
+  if (!isStateRegionCode(normalizedState)) return
   const requestedDays = Math.max(1, Math.min(14, Number(daysBack) || DEFAULT_STATE_PREFETCH_DAYS_BACK))
 
   if (statePrefetchInFlight.has(normalizedState)) return
@@ -2730,9 +2796,10 @@ async function fetchCountyContextWithCache(lat, lng) {
 
 async function fetchStateCountyGeometry(stateRegion) {
   const normalizedState = String(stateRegion || '').toUpperCase()
-  if (!/^US-[A-Z]{2}$/.test(normalizedState)) return null
-  const stateCode = normalizedState.split('-')[1]
-  const endpoint = `./data/counties/${stateCode}.json`
+  if (!isStateRegionCode(normalizedState)) return null
+  // US states: "US-CA" → "CA.json";  LEAF countries: "NL" → "NL.json"
+  const fileCode = normalizedState.startsWith('US-') ? normalizedState.split('-')[1] : normalizedState
+  const endpoint = `./data/counties/${fileCode}.json`
   const response = await fetchWithTimeout(endpoint, 12000)
   if (!response.ok) {
     throw new Error(`State county geometry request failed: ${response.status}`)
@@ -2769,7 +2836,7 @@ async function fetchRegionRarities(region, back = 7, timeoutMs = API_TIMEOUT_MS,
 function buildStateMaskGeojson(stateRegion, sourceGeojson) {
   if (!sourceGeojson || !Array.isArray(sourceGeojson.features)) return null
   const normalizedState = String(stateRegion || '').toUpperCase()
-  if (!/^US-[A-Z]{2}$/.test(normalizedState)) return null
+  if (!isStateRegionCode(normalizedState)) return null
 
   const features = sourceGeojson.features.map((feature) => {
     const regionRaw = feature?.properties?.countyRegion || feature?.properties?.subnational2Code || null
@@ -2862,7 +2929,7 @@ function drawCountyOverlay(geojson) {
 
   const allFeatures = Array.isArray(geojson?.features) ? geojson.features : []
   const activeOverlayRegion = String(geojson?.activeCountyRegion || '').toUpperCase()
-  const isStateOverlayMode = /^US-[A-Z]{2}$/.test(activeOverlayRegion)
+  const isStateOverlayMode = isStateRegionCode(activeOverlayRegion)
   const neighborFeatures = isStateOverlayMode
     ? allFeatures
     : allFeatures.filter((f) => !f?.properties?.isActiveCounty)
@@ -3163,7 +3230,7 @@ function renderNotableTable(observations, countyName, regionCode, abaPillObserva
   notableMeta.dataset.regionCode = regionCode || ''
 
   const normalizedRegion = String(regionCode || '').toUpperCase()
-  const isStateRegion = /^US-[A-Z]{2}$/.test(normalizedRegion)
+  const isStateRegion = isStateRegionCode(normalizedRegion)
   const isUsRegion = normalizedRegion === US_REGION_CODE
   if (isUsRegion) {
     renderStateCountySummaryTable(observations, countyName, normalizedRegion, abaPillObservations)
@@ -3269,10 +3336,13 @@ function buildStateCountySummaryRows(observations, stateRegion) {
 
   source.forEach((item) => {
     const itemState = String(item?.subnational1Code || '').toUpperCase()
-    if (!isUS && /^US-[A-Z]{2}$/.test(normalizedState) && itemState !== normalizedState) return
+    if (!isUS && isStateRegionCode(normalizedState) && itemState !== normalizedState) return
 
-    const regionKey = isUS ? itemState : String(item?.subnational2Code || '').toUpperCase()
-    if (!isUS && !/^US-[A-Z]{2}-\d{3}$/.test(regionKey)) return
+    // LEAF countries (e.g. NL): province IS the finest boundary → use subnational1Code
+    const isLeaf = LEAF_SUBNATIONAL1_COUNTRIES.has(normalizedState)
+    const regionKey = isUS ? itemState : isLeaf ? itemState : String(item?.subnational2Code || '').toUpperCase()
+    if (!isUS && isLeaf && !regionKey.startsWith(normalizedState + '-')) return
+    if (!isUS && !isLeaf && !/^US-[A-Z]{2}-\d{3}$/.test(regionKey)) return
     if (isUS && !/^US-[A-Z]{2}$/.test(regionKey)) return
 
     if (!buckets.has(regionKey)) {
@@ -5202,8 +5272,8 @@ locPermRetryBtn?.addEventListener('click', () => {
 
 locPermDeclineBtn?.addEventListener('click', () => {
   hideLocationPermGate()
-  setLocationUiUnavailable('Location declined. Showing California.')
-  void activateStateByRegion('US-CA')
+  setLocationUiUnavailable('Location declined. Showing Netherlands.')
+  void activateStateByRegion('NL')
 })
 menuInfoBtn?.addEventListener('click', () => {
   if (!infoModal) return
@@ -5231,13 +5301,49 @@ headerSpeciesBtn?.addEventListener('click', (event) => {
   toggleSpeciesPicker()
 })
 
-modeToggleBtn?.addEventListener('click', (event) => {
+// Mode tab bar — 4 view modes
+modeTabBar?.addEventListener('click', (event) => {
+  const btn = event.target.closest('.mode-tab')
+  if (!btn) return
   event.preventDefault()
-  isSpeciesMode = !isSpeciesMode
-  if (isSpeciesMode) closeCountyPicker()
-  else closeSpeciesPicker()
-  syncSpeciesModeUi()
-  updateSpeciesButtonLabel()
+  const newMode = btn.dataset.mode
+  if (newMode && newMode !== currentMode) setMode(newMode)
+})
+
+// Country picker button
+headerCountryBtn?.addEventListener('click', (event) => {
+  event.preventDefault()
+  const menu = document.createElement('div')
+  menu.className = 'country-picker-popover'
+  menu.innerHTML = [
+    { code: 'NL', label: 'Netherlands \u{1F1F3}\u{1F1F1}' },
+    { code: 'US', label: 'United States \u{1F1FA}\u{1F1F8}' },
+  ].map((c) => `<button class="country-pick-item" data-code="${c.code}">${c.label}</button>`).join('')
+  // position above the button
+  const rect = headerCountryBtn.getBoundingClientRect()
+  Object.assign(menu.style, { position: 'fixed', left: `${rect.left}px`, bottom: `${window.innerHeight - rect.top + 4}px`, zIndex: '2000', background: '#1f2937', border: '1px solid rgba(255,255,255,0.18)', borderRadius: '0.55rem', padding: '0.25rem', display: 'flex', flexDirection: 'column', gap: '0.15rem' })
+  document.body.append(menu)
+  const cleanup = () => menu.remove()
+  menu.addEventListener('click', async (e) => {
+    const item = e.target.closest('.country-pick-item')
+    if (!item) return
+    cleanup()
+    const code = item.dataset.code
+    if (code === 'NL') {
+      await activateStateByRegion('NL')
+    } else if (code === 'US') {
+      // open state picker for US
+      renderStatePickerOptions()
+      toggleStatePicker()
+    }
+  })
+  window.setTimeout(() => document.addEventListener('click', cleanup, { once: true, capture: true }), 0)
+})
+
+headerCountrySelect?.addEventListener('change', async (event) => {
+  const code = String(event?.target?.value || '').toUpperCase()
+  if (code === 'NL') await activateStateByRegion('NL')
+  else if (code === 'US') { renderStatePickerOptions(); toggleStatePicker() }
 })
 
 headerStateBtn?.addEventListener('click', (event) => {
@@ -5248,7 +5354,7 @@ headerStateBtn?.addEventListener('click', (event) => {
 
 headerStateSelect?.addEventListener('change', async (event) => {
   const next = String(event?.target?.value || '').toUpperCase()
-  if (next !== US_REGION_CODE && !/^US-[A-Z]{2}$/.test(next)) return
+  if (next !== US_REGION_CODE && !isStateRegionCode(next)) return
   await activateStateByRegion(next)
 })
 
@@ -5328,7 +5434,7 @@ searchApplyBtn?.addEventListener('click', async () => {
     } else if (selectedRegion) {
       if (selectedRegion === US_REGION_CODE) {
         await loadNationalNotables(selectedRegion, effectiveAbaMin)
-      } else if (/^US-[A-Z]{2}$/.test(selectedRegion)) {
+      } else if (isStateRegionCode(selectedRegion)) {
         await loadStateNotables(selectedRegion)
       }
     }
@@ -5629,7 +5735,7 @@ notableRows.addEventListener('click', (event) => {
   const rowCountyRegion = String(row?.dataset?.countyRegion || '').toUpperCase()
   const rowCountyName = String(row?.dataset?.county || '')
   const activeRegion = String(currentCountyRegion || '').toUpperCase()
-  const isStateView = /^US-[A-Z]{2}$/.test(activeRegion)
+  const isStateView = isStateRegionCode(activeRegion)
 
   if (isStateView && rowCountyRegion) {
     preservePinnedSpeciesOnce = true
@@ -5743,7 +5849,7 @@ document.querySelector('#toggleAllVis')?.addEventListener('change', (event) => {
   notableRows.querySelectorAll('.obs-vis-cb').forEach((cb) => { cb.checked = show })
 })
 
-setMode('map')
+setMode('hybrid')
 
 let appBooted = false
 
@@ -5776,40 +5882,19 @@ async function bootAppOnce() {
     statePrefetchDaysBack = DEFAULT_STATE_PREFETCH_DAYS_BACK
   }
 
-  // Default fallback: Woodland, CA (inside Yolo County). Used when geolocation fails/is blocked.
-  const YOLO_DEFAULT_LAT = 38.6785
-  const YOLO_DEFAULT_LNG = -121.7733
-
-  const startFromDefaultCounty = async (reasonLabel = 'default') => {
-    const lat = YOLO_DEFAULT_LAT
-    const lng = YOLO_DEFAULT_LNG
-    lastUserLat = lat
-    lastUserLng = lng
-    const requestId = ++latestLocationRequestId
+  // Default fallback: Netherlands (province-level state view).
+  // The county-context worker is US-only, so we bypass it entirely and
+  // activate the NL state directly — the same path as the state picker.
+  const startFromDefaultRegion = async () => {
     locationStatus.className = 'badge warn'
     locationStatus.textContent = 'Default'
-    locationDetail.textContent = `Yolo County, CA · ${reasonLabel}`
-    resetMapLoadState()
-    updateUserLocationOnMap(lat, lng, null)
-
+    locationDetail.textContent = 'Netherlands · no location'
     try {
-      perfStart('county')
-      const countyContextPromise = updateCountyForLocation(lat, lng, requestId)
-      const notablesPromise = loadCountyNotables(lat, lng, null, requestId, null, false)
-      const countyContext = await countyContextPromise
-      perfEnd('county')
-      if (!isStaleLocationRequest(requestId)) {
-        if (countyContext?.countyLabel) {
-          locationDetail.textContent = `${countyContext.countyLabel} · ${reasonLabel}`
-        }
-        const regionForZoom = String(countyContext?.countyRegion || '').toUpperCase() || null
-        if (regionForZoom) zoomToActiveCounty(latestCountyContextGeojson, regionForZoom)
-      }
-      await notablesPromise
+      await activateStateByRegion('NL')
       updateRuntimeLog()
       return true
     } catch (error) {
-      console.error('default county startup failed:', error)
+      console.error('default region startup failed:', error)
       updateRuntimeLog()
       return false
     }
@@ -5819,9 +5904,9 @@ async function bootAppOnce() {
   const located = await requestUserLocation(false)
   if (located) return
 
-  // Fallback: if GPS is blocked/unavailable, load Yolo County, CA by default.
+  // Fallback: if GPS is blocked/unavailable, show Netherlands by default.
   if (!forceFreshLocation) {
-    await startFromDefaultCounty('no location')
+    await startFromDefaultRegion()
   }
 }
 

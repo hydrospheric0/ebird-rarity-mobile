@@ -8,9 +8,13 @@
   --accent: #009688;
   --border: rgba(15, 23, 42, 0.12);
   --map-strip-height: 40dvh;
-  --bottom-select-height: 2.85rem;
-  --bottom-aba-height: 3.4rem;
-  --bottom-menu-height: calc(var(--bottom-select-height) + var(--bottom-aba-height));
+  --bottom-tab-height: 3.2rem;
+  --bottom-loc-height: 2.75rem;
+  --bottom-aba-filter-height: 2.6rem;
+  --bottom-menu-height: calc(var(--bottom-tab-height) + var(--bottom-loc-height) + var(--bottom-aba-filter-height));
+  /* legacy aliases kept for pickers that still reference them */
+  --bottom-select-height: calc(var(--bottom-tab-height) + var(--bottom-loc-height));
+  --bottom-aba-height: var(--bottom-aba-filter-height);
 }
 
 * {
@@ -421,7 +425,7 @@ body.is-resizing {
   left: 0;
   right: 0;
   top: var(--picker-top, 3.1rem);
-  bottom: calc(var(--bottom-select-height) + env(safe-area-inset-bottom));
+  bottom: calc(var(--bottom-menu-height) + env(safe-area-inset-bottom));
   z-index: 1250;
   border-top: 1px solid var(--border);
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.22);
@@ -701,12 +705,13 @@ body.is-resizing {
   width: 100%;
 }
 
-.bottom-aba-bar {
+/* ABA filter bar — topmost of the 3 bottom bars */
+.bottom-aba-filter-bar {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: calc(var(--bottom-select-height) + env(safe-area-inset-bottom));
-  height: var(--bottom-aba-height);
+  bottom: calc(var(--bottom-tab-height) + var(--bottom-loc-height) + env(safe-area-inset-bottom));
+  height: var(--bottom-aba-filter-height);
   background: var(--brand);
   border-top: 1px solid rgba(255, 255, 255, 0.18);
   z-index: 1290;
@@ -717,17 +722,17 @@ body.is-resizing {
   padding: 0 0.55rem;
 }
 
-.bottom-aba-bar .top-aba-pills {
+.bottom-aba-filter-bar .top-aba-pills {
   margin-left: 0;
   justify-content: flex-end;
   gap: 0.3rem;
 }
 
-/* Label injected as first flex item inside the pills row — only shown in bottom bar */
+/* Label injected as first flex item inside the pills row — only shown in ABA filter bar */
 .aba-pill-label {
   display: none;
 }
-.bottom-aba-bar .aba-pill-label {
+.bottom-aba-filter-bar .aba-pill-label {
   display: inline-flex;
   flex-direction: column;
   align-items: center;
@@ -741,7 +746,7 @@ body.is-resizing {
   margin-right: 0.1rem;
   white-space: nowrap;
 }
-.bottom-aba-bar .aba-pill-label br { display: block; }
+.bottom-aba-filter-bar .aba-pill-label br { display: block; }
 
 .aba-share-btn {
   display: inline-flex;
@@ -765,51 +770,115 @@ body.is-resizing {
   background: rgba(255, 255, 255, 0.15);
 }
 
-.bottom-menu.bottom-select-menu {
+/* Location bar — middle of the 3 bottom bars */
+.bottom-location-bar {
   background: #374151;
   border-top: 1px solid rgba(255, 255, 255, 0.18);
-  border-left: 0;
-  border-right: 0;
-  display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+  display: flex;
   align-items: center;
   gap: 0.28rem;
-  padding: 0.28rem 0.55rem env(safe-area-inset-bottom);
+  padding: 0.28rem 0.55rem;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--bottom-tab-height) + env(safe-area-inset-bottom));
+  z-index: 1295;
+  height: var(--bottom-loc-height);
+  box-shadow: 0 -2px 8px rgba(15, 23, 42, 0.10);
+}
+
+.bottom-location-bar .top-menu-select,
+.bottom-location-bar .top-menu-btn,
+.bottom-location-bar .menu-btn {
+  min-height: calc(var(--bottom-loc-height) - 0.5rem);
+  padding: 0.26rem 0.5rem;
+  font-size: 0.78rem;
+}
+
+.bottom-location-bar #headerCountyBtn {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bottom-location-bar #headerStateBtn {
+  width: 3.1rem;
+  flex-shrink: 0;
+}
+
+.bottom-location-bar #headerDaysBackSelect {
+  width: 3.05rem;
+  text-align: center;
+  padding-left: 0.35rem;
+  padding-right: 0.35rem;
+  flex-shrink: 0;
+}
+
+/* Country button */
+.loc-btn {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 0.55rem;
+  background: #1f2937;
+  color: #94a3b8;
+  font-weight: 700;
+  font-size: 0.78rem;
+  padding: 0.26rem 0.5rem;
+  min-height: calc(var(--bottom-loc-height) - 0.5rem);
+  cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.loc-btn:active {
+  background: #111827;
+}
+
+/* Mode tab bar — bottommost bar */
+.bottom-mode-tab-bar {
+  background: #1f2937;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
   position: fixed;
   left: 0;
   right: 0;
   bottom: 0;
   z-index: 1300;
-  height: calc(var(--bottom-select-height) + env(safe-area-inset-bottom));
-  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.16);
+  height: calc(var(--bottom-tab-height) + env(safe-area-inset-bottom));
+  padding-bottom: env(safe-area-inset-bottom);
+  box-shadow: 0 -4px 16px rgba(15, 23, 42, 0.18);
 }
 
-.bottom-select-menu .top-menu-select,
-.bottom-select-menu .top-menu-btn,
-.bottom-select-menu .menu-btn {
-  min-height: calc(var(--bottom-select-height) - 0.5rem);
-  padding: 0.32rem 0.5rem;
-  font-size: 0.78rem;
+.mode-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.18rem;
+  background: transparent;
+  border: none;
+  color: #64748b;
+  font-size: 0.64rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  padding: 0.3rem 0;
+  transition: color 0.15s;
 }
-
-.bottom-select-menu #headerCountyBtn {
-  width: auto;
+.mode-tab svg {
+  width: 1.15rem;
+  height: 1.15rem;
+  display: block;
 }
-
-.bottom-select-menu #headerStateBtn {
-  width: 3.1rem;
+.mode-tab span {
+  line-height: 1;
 }
-
-.bottom-select-menu #modeToggleBtn {
-  width: 2.35rem;
-  padding: 0;
+.mode-tab:active {
+  color: #e2e8f0;
 }
-
-.bottom-select-menu #headerDaysBackSelect {
-  width: 3.05rem;
-  text-align: center;
-  padding-left: 0.35rem;
-  padding-right: 0.35rem;
+.mode-tab--active {
+  color: #38bdf8;
 }
 
 .menu-btn {
@@ -819,7 +888,7 @@ body.is-resizing {
   color: #ffffff;
   font-weight: 700;
   padding: 0.2rem 0.18rem;
-  min-height: calc(var(--bottom-select-height) - 0.5rem);
+  min-height: calc(var(--bottom-loc-height) - 0.5rem);
 }
 
 .bottom-reload-btn {
@@ -1201,7 +1270,7 @@ body.is-resizing {
   color: #475569;
 }
 
-.bottom-aba-bar .stat-aba-pill-code {
+.bottom-aba-filter-bar .stat-aba-pill-code {
   font-size: 0.78rem;
   color: rgba(248, 250, 252, 0.92);
 }
@@ -1816,3 +1885,50 @@ a.obs-popup-species {
 .scm-count[data-aba="3"] { background: #ecc30b; }
 .scm-count[data-aba="4"] { background: #f37748; }
 .scm-count[data-aba="5"] { background: #ED1313; }
+
+/* ── 4-mode layout switching via data-mode on #appShell ─────────────────── */
+
+/* List mode: hide map strip, table takes full available height */
+#appShell[data-mode="list"] .map-strip {
+  display: none;
+}
+#appShell[data-mode="list"] #mapTableSplitter {
+  display: none;
+}
+
+/* Map mode: hide the table panel, keep only map strip visible */
+#appShell[data-mode="map"] .app-main {
+  display: none;
+}
+#appShell[data-mode="map"] #mapTableSplitter {
+  display: none;
+}
+#appShell[data-mode="map"] .map-strip {
+  height: calc(100dvh - var(--bottom-menu-height) - env(safe-area-inset-bottom) - var(--header-height, 0px));
+}
+
+/* Species mode: hide map strip, show species picker in table area */
+#appShell[data-mode="species"] .map-strip {
+  display: none;
+}
+#appShell[data-mode="species"] #mapTableSplitter {
+  display: none;
+}
+
+/* Country picker popover items */
+.country-pick-item {
+  background: transparent;
+  border: none;
+  color: #e2e8f0;
+  font-size: 0.88rem;
+  font-weight: 600;
+  padding: 0.5rem 0.8rem;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 0.35rem;
+  white-space: nowrap;
+}
+.country-pick-item:hover,
+.country-pick-item:active {
+  background: rgba(255, 255, 255, 0.12);
+}

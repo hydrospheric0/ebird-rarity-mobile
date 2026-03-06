@@ -86,8 +86,8 @@ export const LOWER_48_STATES = ALL_STATES
  * corresponding boundary file (public/data/counties/${code}.json).
  */
 export const ALL_REGIONS = [
-  ...ALL_STATES,
   { code: 'NL', name: 'Netherlands' },
+  ...ALL_STATES,
 ]
 
 /**
