@@ -14,30 +14,41 @@
   </head>
   <body>
     <div id="app"></div>
-    <script type="module">
-      ;(async () => {
-        const CACHE_RESET_VERSION = '2026-03-06-1'
-        const CACHE_RESET_KEY = 'mrm_bootstrap_cache_reset_version'
-        try {
-          if (localStorage.getItem(CACHE_RESET_KEY) !== CACHE_RESET_VERSION) {
-            if ('serviceWorker' in navigator) {
-              const regs = await navigator.serviceWorker.getRegistrations()
-              await Promise.all(regs.map((r) => r.unregister().catch(() => false)))
+    <!-- Plain (non-module) script so Vite preserves it verbatim in the build output.
+         Registers the SW with updateViaCache:'none' so the browser byte-checks sw.js
+         on every load, and does a one-time cache+SW wipe when CACHE_RESET_VERSION changes. -->
+    <script>
+      (function () {
+        var CACHE_RESET_VERSION = '2026-03-06-3'
+        var CACHE_RESET_KEY = 'mrm_bootstrap_cache_reset_version'
+        function nukeAndReload() {
+          try {
+            if (navigator.serviceWorker) {
+              navigator.serviceWorker.getRegistrations().then(function (regs) {
+                regs.forEach(function (r) { r.unregister() })
+              })
             }
-            if ('caches' in window) {
-              const keys = await caches.keys()
-              await Promise.all(keys.map((k) => caches.delete(k).catch(() => false)))
+            if (window.caches) {
+              caches.keys().then(function (keys) {
+                keys.forEach(function (k) { caches.delete(k) })
+              })
             }
             localStorage.setItem(CACHE_RESET_KEY, CACHE_RESET_VERSION)
+          } catch (e) {}
+        }
+        try {
+          if (localStorage.getItem(CACHE_RESET_KEY) !== CACHE_RESET_VERSION) {
+            nukeAndReload()
           }
-        } catch (e) {
-          console.warn('bootstrap cache reset skipped:', e)
-        }
+        } catch (e) {}
         if ('serviceWorker' in navigator) {
-          navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).catch(() => {})
+          window.addEventListener('load', function () {
+            navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' })
+              .catch(function () {})
+          })
         }
-        await import('./src/main.js')
       })()
     </script>
+    <script type="module" src="./src/main.js"></script>
   </body>
 </html>
