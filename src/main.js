@@ -5974,8 +5974,45 @@ async function bootAppOnce() {
     }
   }
 
-  // Default: request current location.
-  const located = await requestUserLocation(false)
+  // If we have a fresh cached GPS position and this isn't a forced refresh,
+  // load from cache to avoid triggering the browser location prompt on every reload.
+  let located = false
+  if (!forceFreshLocation) {
+    try {
+      const saved = JSON.parse(localStorage.getItem('mrm_last_pos') || 'null')
+      const MAX_CACHE_AGE_MS = 24 * 60 * 60 * 1000 // 24 hours
+      if (saved && Number.isFinite(saved.lat) && Number.isFinite(saved.lng) &&
+          (Date.now() - (saved.ts || 0)) < MAX_CACHE_AGE_MS) {
+        lastUserLat = saved.lat
+        lastUserLng = saved.lng
+        locationStatus.className = 'badge ok'
+        locationStatus.textContent = 'Located'
+        locationDetail.textContent = `Lat ${saved.lat.toFixed(5)}, Lon ${saved.lng.toFixed(5)} · cached`
+        const requestId = ++latestLocationRequestId
+        updateUserLocationOnMap(saved.lat, saved.lng, 0)
+        const cachedGeoJson = loadCountyContextCache(saved.lat, saved.lng)
+        const cachedActiveFeature = Array.isArray(cachedGeoJson?.features)
+          ? cachedGeoJson.features.find((f) => f?.properties?.isActiveCounty)
+          : null
+        const cachedCountyRegion = cachedActiveFeature?.properties?.countyRegion || cachedGeoJson?.activeCountyRegion || null
+        const countyContextPromise = updateCountyForLocation(saved.lat, saved.lng, requestId)
+        const notablesPromise = loadCountyNotables(saved.lat, saved.lng, cachedCountyRegion, requestId, null, false)
+        const countyContext = await countyContextPromise
+        if (countyContext?.countyLabel) {
+          const regionHint = countyContext?.countyRegion ? ` (${countyContext.countyRegion})` : ''
+          locationDetail.textContent = `Lat ${saved.lat.toFixed(5)}, Lon ${saved.lng.toFixed(5)} · cached · ${countyContext.countyLabel}${regionHint}`
+        }
+        await notablesPromise
+        updateRuntimeLog()
+        located = true
+      }
+    } catch (_) {}
+  }
+
+  // No fresh cache (or forced refresh): request current location — may show browser GPS prompt.
+  if (!located) {
+    located = await requestUserLocation(false)
+  }
   if (located) return
 
   // Fallback: if GPS is blocked/unavailable, show Netherlands by default.
