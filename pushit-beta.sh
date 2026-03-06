@@ -25,6 +25,7 @@ set -euo pipefail
 BETA_REPO_URL="${BETA_REPO_URL:-https://github.com/hydrospheric0/ebird-rarity-mobile-beta.git}"
 BETA_PAGES_BRANCH="gh-pages"
 BETA_SOURCE_BRANCH="main"
+BETA_REMOTE_NAME="beta"
 SOURCE_BRANCH="feat/international"
 BETA_VERSION_FILE=".beta-version"   # tracked on feat/international only
 DEFAULT_VITE_API_BASE_URL="https://ebird-rarity-mapper.bartwickel.workers.dev"
@@ -32,6 +33,32 @@ DEFAULT_UPDATE_MESSAGE="Beta update"
 # ──────────────────────────────────────────────────────────────────────────
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
+
+normalize_git_url() {
+  local url="$1"
+  url="${url%.git}"
+  if [[ "$url" =~ ^git@github\.com:(.*)$ ]]; then
+    url="https://github.com/${BASH_REMATCH[1]}"
+  fi
+  echo "$url"
+}
+
+ensure_remote_url() {
+  local remote_name="$1"
+  local expected_url="$2"
+  local current_url=""
+
+  if git remote get-url "$remote_name" >/dev/null 2>&1; then
+    current_url="$(git remote get-url "$remote_name")"
+    if [[ "$(normalize_git_url "$current_url")" != "$(normalize_git_url "$expected_url")" ]]; then
+      echo "🔧 Updating remote $remote_name → $expected_url"
+      git remote set-url "$remote_name" "$expected_url"
+    fi
+  else
+    echo "🔗 Adding remote $remote_name → $expected_url"
+    git remote add "$remote_name" "$expected_url"
+  fi
+}
 
 # ── Guard: must be on feat/international ─────────────────────────────────
 CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
@@ -129,6 +156,8 @@ if [[ -z "${VITE_API_BASE_URL:-}" ]]; then
   echo "ℹ️  VITE_API_BASE_URL not set. Using: $VITE_API_BASE_URL"
 fi
 
+ensure_remote_url "$BETA_REMOTE_NAME" "$BETA_REPO_URL"
+
 current_version="$(get_current_beta_version)"
 if [[ -n "$release_version" ]]; then
   next_version="$release_version"
@@ -153,10 +182,10 @@ else
 fi
 
 echo "📤 Pushing feat/international to origin/$SOURCE_BRANCH..."
-git push -u origin "$SOURCE_BRANCH"
+git push -u origin HEAD:"$SOURCE_BRANCH"
 
-echo "📤 Mirroring beta source to $BETA_REPO_URL ($BETA_SOURCE_BRANCH)..."
-git push --force "$BETA_REPO_URL" HEAD:"$BETA_SOURCE_BRANCH"
+echo "📤 Mirroring beta source to $BETA_REMOTE_NAME/$BETA_SOURCE_BRANCH..."
+git push --force "$BETA_REMOTE_NAME" HEAD:"$BETA_SOURCE_BRANCH"
 
 # ── Tag with beta version ─────────────────────────────────────────────────
 git fetch --tags origin >/dev/null 2>&1 || true
