@@ -1,7 +1,7 @@
 // SW_VERSION is stamped by pushit.sh on every deploy so the browser detects
 // a byte change in this file and re-installs, triggering activate which clears
 // all stale caches and reloads every open tab to the latest build.
-const SW_VERSION = '0.6.5'
+const SW_VERSION = '0.6.6'
 const LEGACY_CACHE_PREFIXES = ['rarity-mobile-', 'workbox-', 'vite-']
 
 self.addEventListener('install', (event) => {
