@@ -16,7 +16,7 @@
     <div id="app"></div>
     <script type="module">
       ;(async () => {
-        const CACHE_RESET_VERSION = '2026-03-06-1'
+        const CACHE_RESET_VERSION = '2026-03-06-2'
         const CACHE_RESET_KEY = 'mrm_bootstrap_cache_reset_version'
 
         try {
@@ -35,6 +35,13 @@
           }
         } catch (error) {
           console.warn('bootstrap cache reset skipped:', error)
+        }
+
+        // Register the SW with updateViaCache:'none' so the browser always
+        // byte-checks sw.js against the network, guaranteeing that a new
+        // deploy (which stamps a new SW_VERSION) triggers a re-install.
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).catch(() => {})
         }
 
         await import('./src/main.js')

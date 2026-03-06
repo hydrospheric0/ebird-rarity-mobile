@@ -170,11 +170,11 @@ fi
 # Update only the beta version file (leave main VERSION / package.json alone)
 printf '%s\n' "$next_version" > "$BETA_VERSION_FILE"
 
-# ── Stamp the service-worker cache name so browsers always pick up new assets ──
-sed -i "s|const CACHE_NAME = '[^']*'|const CACHE_NAME = 'rarity-mobile-v${next_version}'|" sw.js
+# ── Stamp the service-worker version so browsers always pick up new assets ──
+sed -i "s|const SW_VERSION = '[^']*'|const SW_VERSION = '${next_version}'|" public/sw.js
 
 # ── Commit beta version file + any staged changes ────────────────────────
-git add "$BETA_VERSION_FILE" sw.js
+git add "$BETA_VERSION_FILE" public/sw.js index.html
 git add -u   # stage tracked-file changes on feat/international
 
 if ! git diff --cached --quiet; then
