@@ -16,10 +16,37 @@ set -euo pipefail
 REPO_URL="https://github.com/hydrospheric0/ebird-rarity-mobile.git"
 PAGES_BRANCH="gh-pages"
 SOURCE_BRANCH="main"
+SOURCE_REMOTE="origin"
 DEFAULT_VITE_API_BASE_URL="https://ebird-rarity-mapper.bartwickel.workers.dev"
 DEFAULT_UPDATE_MESSAGE="Minor updates"
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
+
+normalize_git_url() {
+  local url="$1"
+  url="${url%.git}"
+  if [[ "$url" =~ ^git@github\.com:(.*)$ ]]; then
+    url="https://github.com/${BASH_REMATCH[1]}"
+  fi
+  echo "$url"
+}
+
+ensure_remote_url() {
+  local remote_name="$1"
+  local expected_url="$2"
+  local current_url=""
+
+  if git remote get-url "$remote_name" >/dev/null 2>&1; then
+    current_url="$(git remote get-url "$remote_name")"
+    if [[ "$(normalize_git_url "$current_url")" != "$(normalize_git_url "$expected_url")" ]]; then
+      echo "🔧 Updating remote $remote_name → $expected_url"
+      git remote set-url "$remote_name" "$expected_url"
+    fi
+  else
+    echo "🔗 Adding remote $remote_name → $expected_url"
+    git remote add "$remote_name" "$expected_url"
+  fi
+}
 
 usage() {
   cat <<'EOF'
@@ -142,6 +169,15 @@ else
 fi
 set_version_files "$next_version"
 
+# ── Guard: must be on main ──────────────────────────────────────────────────
+CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+if [[ "$CURRENT_BRANCH" != "$SOURCE_BRANCH" ]]; then
+  echo "❌ ERROR: pushit.sh must be run from the $SOURCE_BRANCH branch."
+  echo "   Current branch: $CURRENT_BRANCH"
+  echo "   Run: git checkout $SOURCE_BRANCH"
+  exit 1
+fi
+
 # ── 1. Ensure git repo exists ────────────────────────────────────────────────
 if [ ! -d ".git" ]; then
   echo "📦 Initialising git repository..."
@@ -150,10 +186,7 @@ if [ ! -d ".git" ]; then
 fi
 
 # ── 2. Wire up remote if missing ─────────────────────────────────────────────
-if ! git remote get-url origin >/dev/null 2>&1; then
-  echo "🔗 Adding remote origin → $REPO_URL"
-  git remote add origin "$REPO_URL"
-fi
+ensure_remote_url "$SOURCE_REMOTE" "$REPO_URL"
 
 # ── 3. Stage + commit source ─────────────────────────────────────────────────
 if [[ "$stage_mode" == "all" ]]; then
@@ -170,15 +203,15 @@ else
 fi
 
 # Pull/rebase so we don't diverge (skip on first push when no upstream yet)
-if git rev-parse --verify -q "origin/$SOURCE_BRANCH" >/dev/null 2>&1; then
-  git pull --rebase origin "$SOURCE_BRANCH"
+if git rev-parse --verify -q "$SOURCE_REMOTE/$SOURCE_BRANCH" >/dev/null 2>&1; then
+  git pull --rebase "$SOURCE_REMOTE" "$SOURCE_BRANCH"
 fi
 
-echo "📤 Pushing source to origin/$SOURCE_BRANCH..."
-git push -u origin "$SOURCE_BRANCH"
+echo "📤 Pushing source to $SOURCE_REMOTE/$SOURCE_BRANCH from HEAD..."
+git push -u "$SOURCE_REMOTE" HEAD:"$SOURCE_BRANCH"
 
 # ── 4. Tag release ─────────────────────────────────────────────────────────
-git fetch --tags origin >/dev/null 2>&1 || true
+git fetch --tags "$SOURCE_REMOTE" >/dev/null 2>&1 || true
 release_tag="v${next_version}"
 if git rev-parse -q --verify "refs/tags/${release_tag}" >/dev/null 2>&1; then
   echo "ℹ️  Tag ${release_tag} already exists — skipping tag creation."
@@ -187,7 +220,7 @@ else
   git tag -a "${release_tag}" -m "Release ${next_version}"
 fi
 echo "📤 Pushing tag ${release_tag}..."
-git push origin "${release_tag}"
+git push "$SOURCE_REMOTE" "${release_tag}"
 
 # ── 5. Build ─────────────────────────────────────────────────────────────────
 echo "🔨 Building with Vite..."
@@ -201,7 +234,7 @@ TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 # Clone just the gh-pages branch into a temp dir (shallow, or fresh if new)
-if git ls-remote --exit-code origin "$PAGES_BRANCH" >/dev/null 2>&1; then
+if git ls-remote --exit-code "$SOURCE_REMOTE" "$PAGES_BRANCH" >/dev/null 2>&1; then
   git clone --depth 1 --branch "$PAGES_BRANCH" "$REPO_URL" "$TMP_DIR"
 else
   # First deploy: init empty branch
