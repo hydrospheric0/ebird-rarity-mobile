@@ -169,6 +169,9 @@ else
 fi
 set_version_files "$next_version"
 
+# Stamp the service worker so every deploy is detected as a new SW by browsers.
+sed -i "s|const SW_VERSION = '[^']*'|const SW_VERSION = '${next_version}'|" public/sw.js
+
 # ── Guard: must be on main ──────────────────────────────────────────────────
 CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 if [[ "$CURRENT_BRANCH" != "$SOURCE_BRANCH" ]]; then
@@ -189,6 +192,8 @@ fi
 ensure_remote_url "$SOURCE_REMOTE" "$REPO_URL"
 
 # ── 3. Stage + commit source ─────────────────────────────────────────────────
+# Always stage the SW and version files (may be untracked on first run).
+git add public/sw.js VERSION package.json 2>/dev/null || true
 if [[ "$stage_mode" == "all" ]]; then
   git add -A
 else
