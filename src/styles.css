@@ -814,9 +814,15 @@ body.is-resizing {
   white-space: nowrap;
 }
 
+/* Country and state buttons: fixed 2-char width */
+.bottom-location-bar #headerCountryBtn,
 .bottom-location-bar #headerStateBtn {
-  width: 3.1rem;
+  width: 2.2rem;
   flex-shrink: 0;
+  padding-left: 0.2rem;
+  padding-right: 0.2rem;
+  text-align: center;
+  font-weight: 600;
 }
 
 .bottom-location-bar #headerDaysBackSelect {

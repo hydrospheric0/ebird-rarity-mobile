@@ -209,7 +209,8 @@ app.innerHTML = `
 
     <!-- Location bar — country + province/state + county selectors + days back + reload -->
     <div class="bottom-location-bar" aria-label="Location">
-      <button id="headerStateBtn" class="top-menu-select top-menu-btn bottom-select" type="button" aria-label="Country / Province / State" title="Choose country, province, or state">-</button>
+      <button id="headerCountryBtn" class="loc-btn-country bottom-select" type="button" aria-label="Country" title="Country">NL</button>
+      <button id="headerStateBtn" class="loc-btn-state top-menu-select top-menu-btn bottom-select" type="button" aria-label="State" title="Choose state" hidden>-</button>
       <select id="headerStateSelect" class="top-menu-select" aria-label="Province/State" hidden aria-hidden="true" tabindex="-1">
         <option value="NL">Netherlands</option>
       </select>
@@ -333,7 +334,7 @@ const headerCountyBtn = document.querySelector('#headerCountyBtn')
 const headerSpeciesBtn = document.querySelector('#headerSpeciesBtn')
 const headerStateSelect = document.querySelector('#headerStateSelect')
 const headerStateBtn = document.querySelector('#headerStateBtn')
-const headerCountryBtn = null // removed — headerStateBtn now handles country switching
+const headerCountryBtn = document.querySelector('#headerCountryBtn')
 const headerCountrySelect = null // element removed
 const modeTabBar = document.querySelector('#modeTabBar')
 const modeToggleBtn = null // removed in UI revamp — kept as null for safe compat
@@ -558,6 +559,9 @@ let lastFilteredObservations = []
 let lastFilteredObservationsNoSpecies = []
 let lastFilteredRegion = null
 let currentMode = 'hybrid' // 'hybrid' | 'list' | 'map' | 'species'
+// Pending location selections — set by pickers, applied only when Reload is pressed.
+let pendingRegionCode = null   // e.g. 'NL', 'US', 'US-CA' — not yet loaded
+let pendingCountyOption = null // countyPickerOption — not yet loaded
 let speciesPickerOptions = []
 let explodeClustersOnNextCountySwitch = false
 let mapFitMaxZoomOnce = null
@@ -909,9 +913,14 @@ function syncSpeciesModeUi() {
 }
 
 function refreshLocationBar() {
-  // headerStateBtn is always visible — its label (set in refreshHeaderStateOptions) shows the country
-  // abbreviation (NL) or state abbreviation (CA).  No separate country button needed.
-  if (headerStateBtn) headerStateBtn.removeAttribute('hidden')
+  const stateRegion = stateRegionFromAnyRegion(currentCountyRegion) || 'NL'
+  const isNl = LEAF_SUBNATIONAL1_COUNTRIES.has(stateRegion)
+  const isUs = stateRegion.startsWith('US')
+  if (headerCountryBtn) {
+    headerCountryBtn.textContent = isNl ? 'NL' : isUs ? 'US' : stateRegion.split('-')[0] || stateRegion
+  }
+  // State btn shows 2-letter state abbrev — only meaningful in US mode
+  if (headerStateBtn) headerStateBtn.toggleAttribute('hidden', isNl)
 }
 
 function closeSpeciesPicker() {
@@ -5340,6 +5349,44 @@ modeTabBar?.addEventListener('click', (event) => {
   if (newMode && newMode !== currentMode) setMode(newMode)
 })
 
+// Country button: quick NL/US switch (2-char fixed) — sets pending, opens region picker
+headerCountryBtn?.addEventListener('click', (event) => {
+  event.preventDefault()
+  const menu = document.createElement('div')
+  menu.className = 'country-picker-popover'
+  menu.innerHTML = [
+    { code: 'NL', label: 'Netherlands \u{1F1F3}\u{1F1F1}' },
+    { code: 'US', label: 'United States \u{1F1FA}\u{1F1F8}' },
+  ].map((c) => `<button class="country-pick-item" data-code="${c.code}">${c.label}</button>`).join('')
+  const rect = headerCountryBtn.getBoundingClientRect()
+  Object.assign(menu.style, { position: 'fixed', left: `${rect.left}px`, bottom: `${window.innerHeight - rect.top + 4}px`, zIndex: '2000', background: '#1f2937', border: '1px solid rgba(255,255,255,0.18)', borderRadius: '0.55rem', padding: '0.25rem', display: 'flex', flexDirection: 'column', gap: '0.15rem' })
+  document.body.append(menu)
+  const cleanup = () => menu.remove()
+  menu.addEventListener('click', (e) => {
+    const item = e.target.closest('.country-pick-item')
+    if (!item) return
+    cleanup()
+    const code = item.dataset.code
+    pendingRegionCode = code === 'NL' ? 'NL' : US_REGION_CODE
+    pendingCountyOption = null
+    const isNl = code === 'NL'
+    if (headerCountryBtn) headerCountryBtn.textContent = isNl ? 'NL' : 'US'
+    if (headerStateBtn) {
+      headerStateBtn.toggleAttribute('hidden', isNl)
+      if (!isNl) headerStateBtn.textContent = '-'
+    }
+    if (headerCountyBtn) headerCountyBtn.textContent = isNl ? 'Select Province' : 'Select State'
+    // Open next-level picker: for US open state picker, for NL open province (county) picker
+    if (!isNl) {
+      renderStatePickerOptions()
+      toggleStatePicker()
+    } else {
+      toggleCountyPicker()
+    }
+  })
+  window.setTimeout(() => document.addEventListener('click', cleanup, { once: true, capture: true }), 0)
+})
+
 headerStateBtn?.addEventListener('click', (event) => {
   event.preventDefault()
   renderStatePickerOptions()
@@ -5473,8 +5520,27 @@ menuPinBtn?.addEventListener('click', () => {
   focusMapOnUserLocation()
 })
 
-bottomReloadBtn?.addEventListener('click', () => {
-  void triggerHardRefresh()
+bottomReloadBtn?.addEventListener('click', async () => {
+  const targetRegion = pendingRegionCode
+  const targetCounty = pendingCountyOption
+  pendingRegionCode = null
+  pendingCountyOption = null
+  if (targetCounty) {
+    await activateCountyFromOption(targetCounty)
+  } else if (targetRegion) {
+    await activateStateByRegion(targetRegion)
+  } else {
+    // Re-fetch current location (no pending changes)
+    const cr = String(currentCountyRegion || '').toUpperCase()
+    if (!cr) return
+    if (cr === US_REGION_CODE || isStateRegionCode(cr)) {
+      await activateStateByRegion(cr)
+    } else {
+      const opt = countyPickerOptions.find((o) => String(o.countyRegion || '').toUpperCase() === cr)
+      if (opt) await activateCountyFromOption(opt)
+      else await activateStateByRegion(stateRegionFromAnyRegion(cr) || 'NL')
+    }
+  }
 })
 mapFullscreenToggleBtn.addEventListener('click', () => {
   setMapFullscreen(!isMapFullscreen)
@@ -5529,7 +5595,9 @@ countyPickerList?.addEventListener('click', (event) => {
   const option = countyPickerOptions[index]
   if (!option) return
   closeCountyPicker()
-  activateCountyFromOption(option)
+  // Set pending selection — data loads only when Reload is pressed
+  pendingCountyOption = option
+  if (headerCountyBtn) headerCountyBtn.textContent = String(option.countyName || 'County')
 })
 
 speciesPickerList?.addEventListener('click', (event) => {
@@ -5562,13 +5630,25 @@ speciesPickerList?.addEventListener('click', (event) => {
   }
 })
 
-statePickerList?.addEventListener('click', async (event) => {
+statePickerList?.addEventListener('click', (event) => {
   const btn = event.target.closest('.county-option')
   if (!btn) return
   const code = String(btn.dataset.code || '').toUpperCase()
   if (!code) return
   closeStatePicker()
-  await activateStateByRegion(code)
+  // Set pending selection — data loads only when Reload is pressed
+  pendingRegionCode = code
+  pendingCountyOption = null
+  const isNl = LEAF_SUBNATIONAL1_COUNTRIES.has(code)
+  const isUs = code.startsWith('US')
+  if (headerCountryBtn) headerCountryBtn.textContent = isNl ? 'NL' : isUs ? 'US' : code.split('-')[0] || code
+  if (headerStateBtn) {
+    headerStateBtn.toggleAttribute('hidden', isNl)
+    if (!isNl) headerStateBtn.textContent = getStateAbbrevByRegion(code) || code
+  }
+  if (headerCountyBtn) {
+    headerCountyBtn.textContent = isNl ? 'Select Province' : code === US_REGION_CODE ? 'Select State' : 'Select County'
+  }
 })
 
 function activateAbaPill(pill) {
