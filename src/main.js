@@ -209,13 +209,7 @@ app.innerHTML = `
 
     <!-- Location bar — country + province/state + county selectors + days back + reload -->
     <div class="bottom-location-bar" aria-label="Location">
-      <button id="headerCountryBtn" class="loc-btn bottom-select" type="button" aria-label="Country" title="Choose country">NL</button>
-      <select id="headerCountrySelect" class="loc-select" aria-label="Country" hidden aria-hidden="true" tabindex="-1">
-        <option value="NL">Netherlands</option>
-        <option value="US">United States</option>
-      </select>
-
-      <button id="headerStateBtn" class="top-menu-select top-menu-btn bottom-select" type="button" aria-label="Province/State" title="Choose province/state">-</button>
+      <button id="headerStateBtn" class="top-menu-select top-menu-btn bottom-select" type="button" aria-label="Country / Province / State" title="Choose country, province, or state">-</button>
       <select id="headerStateSelect" class="top-menu-select" aria-label="Province/State" hidden aria-hidden="true" tabindex="-1">
         <option value="NL">Netherlands</option>
       </select>
@@ -285,6 +279,14 @@ app.innerHTML = `
       </section>
     </div>
 
+    <div id="speciesDetailPanel" class="species-detail-panel" hidden aria-modal="true" role="dialog" aria-labelledby="speciesDetailTitle">
+      <div class="species-detail-header">
+        <button id="speciesDetailBackBtn" class="species-detail-back" type="button" aria-label="Back">&#x2190; Back</button>
+        <span id="speciesDetailTitle" class="species-detail-title"></span>
+      </div>
+      <div id="speciesDetailBody" class="species-detail-body obs-popup"></div>
+    </div>
+
     <div id="searchPopover" class="menu-popover" hidden>
       <div class="menu-popover-card menu-popover-card--search" role="dialog" aria-modal="true" aria-labelledby="searchMenuTitle">
         <div id="searchMenuTitle" class="menu-popover-title">Search</div>
@@ -331,8 +333,8 @@ const headerCountyBtn = document.querySelector('#headerCountyBtn')
 const headerSpeciesBtn = document.querySelector('#headerSpeciesBtn')
 const headerStateSelect = document.querySelector('#headerStateSelect')
 const headerStateBtn = document.querySelector('#headerStateBtn')
-const headerCountryBtn = document.querySelector('#headerCountryBtn')
-const headerCountrySelect = document.querySelector('#headerCountrySelect')
+const headerCountryBtn = null // removed — headerStateBtn now handles country switching
+const headerCountrySelect = null // element removed
 const modeTabBar = document.querySelector('#modeTabBar')
 const modeToggleBtn = null // removed in UI revamp — kept as null for safe compat
 const filterAbaMinInput = document.querySelector('#filterAbaMin')
@@ -907,14 +909,9 @@ function syncSpeciesModeUi() {
 }
 
 function refreshLocationBar() {
-  if (!headerCountryBtn) return
-  // derive country from current region
-  const stateRegion = stateRegionFromAnyRegion(currentCountyRegion) || 'NL'
-  const isNl = LEAF_SUBNATIONAL1_COUNTRIES.has(stateRegion)
-  const isUs = stateRegion.startsWith('US')
-  headerCountryBtn.textContent = isNl ? 'NL' : isUs ? 'USA' : stateRegion.split('-')[0] || stateRegion
-  // In NL (LEAF) mode, the state button is unnecessary — hide it
-  if (headerStateBtn) headerStateBtn.toggleAttribute('hidden', isNl)
+  // headerStateBtn is always visible — its label (set in refreshHeaderStateOptions) shows the country
+  // abbreviation (NL) or state abbreviation (CA).  No separate country button needed.
+  if (headerStateBtn) headerStateBtn.removeAttribute('hidden')
 }
 
 function closeSpeciesPicker() {
@@ -1114,7 +1111,8 @@ function zoomToStateBounds(geojson, stateRegion) {
   const prefix = `${normalizedState}-`
   const stateFeatures = geojson.features.filter((feature) => {
     const countyRegion = String(feature?.properties?.countyRegion || feature?.properties?.subnational2Code || '').toUpperCase()
-    return countyRegion.startsWith(prefix)
+    // Match exact (for a LEAF province feature: NL-GR === NL-GR) or prefix (US-CA counties start NL-GR-...)
+    return countyRegion === normalizedState || countyRegion.startsWith(prefix)
   })
   if (!stateFeatures.length) return false
   try {
@@ -1611,18 +1609,25 @@ function toggleStatePicker() {
 function renderStatePickerOptions() {
   if (!statePickerList) return
   const activeState = stateRegionFromAnyRegion(currentCountyRegion) || 'NL'
+
+  const makeBtn = (state) => {
+    const abbrev = getStateAbbrevByRegion(state.code)
+    const isActive = String(state.code).toUpperCase() === String(activeState).toUpperCase()
+    const summary = state.code === US_REGION_CODE ? null : getStateSummary(state.code, isActive)
+    const pillsHtml = formatCountySummaryPills(summary, { includeTotal: false, includeNoCode: true })
+    const label = state.code === US_REGION_CODE ? state.name : `${abbrev} · ${state.name}`
+    return `<button type="button" class="county-option${isActive ? ' is-active' : ''}" data-code="${escapeHtml(state.code)}" role="option" aria-selected="${isActive ? 'true' : 'false'}"><span class="county-option-name">${escapeHtml(label)}</span><span class="county-option-meta county-option-meta-pills">${pillsHtml}</span></button>`
+  }
+
+  const nlRegions = ALL_REGIONS.filter((s) => LEAF_SUBNATIONAL1_COUNTRIES.has(s.code.split('-')[0]))
+  const usRegions = ALL_REGIONS.filter((s) => s.code.startsWith('US-'))
   const usEntry = { code: US_REGION_CODE, name: 'United States — All' }
-  const allOptions = [usEntry, ...ALL_REGIONS]
-  statePickerList.innerHTML = allOptions
-    .map((state) => {
-      const abbrev = getStateAbbrevByRegion(state.code)
-      const isActive = String(state.code).toUpperCase() === String(activeState).toUpperCase()
-      const summary = state.code === US_REGION_CODE ? null : getStateSummary(state.code, isActive)
-      const pillsHtml = formatCountySummaryPills(summary, { includeTotal: false, includeNoCode: true })
-      const label = state.code === US_REGION_CODE ? state.name : `${abbrev} · ${state.name}`
-      return `<button type="button" class="county-option${isActive ? ' is-active' : ''}" data-code="${escapeHtml(state.code)}" role="option" aria-selected="${isActive ? 'true' : 'false'}"><span class="county-option-name">${escapeHtml(label)}</span><span class="county-option-meta county-option-meta-pills">${pillsHtml}</span></button>`
-    })
-    .join('')
+
+  statePickerList.innerHTML =
+    '<div class="state-picker-section-header">&#x1F1F3;&#x1F1F1; Netherlands</div>' +
+    nlRegions.map(makeBtn).join('') +
+    '<div class="state-picker-section-header">&#x1F1FA;&#x1F1F8; United States</div>' +
+    [usEntry, ...usRegions].map(makeBtn).join('')
 }
 
 async function activateStateByRegion(stateRegion) {
@@ -1869,20 +1874,32 @@ function buildStateCountyEntries(source, stateRegion = '') {
     : ''
   const buckets = new Map()
 
+  const isLeaf = LEAF_SUBNATIONAL1_COUNTRIES.has(normalizedState)
+
   ;(Array.isArray(source) ? source : []).forEach((item) => {
     const itemState = String(item?.subnational1Code || '').toUpperCase()
-    if (normalizedState && itemState !== normalizedState) return
-    const countyRegion = String(item?.subnational2Code || '').toUpperCase()
-    if (!/^US-[A-Z]{2}-\d{3}$/.test(countyRegion)) return
-    if (!buckets.has(countyRegion)) {
-      buckets.set(countyRegion, [])
+    // For LEAF countries (NL), province IS the county — match on subnational1Code
+    if (isLeaf) {
+      if (normalizedState && !itemState.startsWith(normalizedState + '-') && itemState !== normalizedState) return
+      const countyRegion = itemState
+      if (!countyRegion) return
+      if (!buckets.has(countyRegion)) buckets.set(countyRegion, [])
+      buckets.get(countyRegion).push(item)
+    } else {
+      if (normalizedState && itemState !== normalizedState) return
+      const countyRegion = String(item?.subnational2Code || '').toUpperCase()
+      if (!/^US-[A-Z]{2}-\d{3}$/.test(countyRegion)) return
+      if (!buckets.has(countyRegion)) buckets.set(countyRegion, [])
+      buckets.get(countyRegion).push(item)
     }
-    buckets.get(countyRegion).push(item)
   })
 
   const entries = Array.from(buckets.entries()).map(([countyRegion, items]) => {
     const first = items[0] || {}
-    const countyName = String(first?.subnational2Name || countyRegion)
+    // For LEAF countries, province name lives in subnational1Name or the region code
+    const countyName = isLeaf
+      ? String(first?.subnational1Name || first?.countyName || countyRegion)
+      : String(first?.subnational2Name || countyRegion)
     const latItem = items.find((entry) => Number.isFinite(Number(entry?.lat)) && Number.isFinite(Number(entry?.lng))) || first
     const lat = Number(latItem?.lat)
     const lng = Number(latItem?.lng)
@@ -2798,13 +2815,26 @@ async function fetchStateCountyGeometry(stateRegion) {
   const normalizedState = String(stateRegion || '').toUpperCase()
   if (!isStateRegionCode(normalizedState)) return null
   // US states: "US-CA" → "CA.json";  LEAF countries: "NL" → "NL.json"
-  const fileCode = normalizedState.startsWith('US-') ? normalizedState.split('-')[1] : normalizedState
+  // LEAF province: "NL-GR" → fetch "NL.json" and filter to that province
+  const parts = normalizedState.split('-')
+  const isLeafProvince = parts.length === 2 && LEAF_SUBNATIONAL1_COUNTRIES.has(parts[0])
+  const fileCode = normalizedState.startsWith('US-') ? parts[1] : (isLeafProvince ? parts[0] : normalizedState)
   const endpoint = `./data/counties/${fileCode}.json`
   const response = await fetchWithTimeout(endpoint, 12000)
   if (!response.ok) {
     throw new Error(`State county geometry request failed: ${response.status}`)
   }
-  return response.json()
+  const geojson = await response.json()
+  // For a LEAF province (e.g. NL-GR), filter the parent country JSON to just that feature
+  if (isLeafProvince && Array.isArray(geojson?.features)) {
+    return {
+      ...geojson,
+      features: geojson.features.filter((f) =>
+        String(f?.properties?.countyRegion || '').toUpperCase() === normalizedState
+      ),
+    }
+  }
+  return geojson
 }
 
 async function fetchRegionRarities(region, back = 7, timeoutMs = API_TIMEOUT_MS, options = {}) {
@@ -5310,42 +5340,6 @@ modeTabBar?.addEventListener('click', (event) => {
   if (newMode && newMode !== currentMode) setMode(newMode)
 })
 
-// Country picker button
-headerCountryBtn?.addEventListener('click', (event) => {
-  event.preventDefault()
-  const menu = document.createElement('div')
-  menu.className = 'country-picker-popover'
-  menu.innerHTML = [
-    { code: 'NL', label: 'Netherlands \u{1F1F3}\u{1F1F1}' },
-    { code: 'US', label: 'United States \u{1F1FA}\u{1F1F8}' },
-  ].map((c) => `<button class="country-pick-item" data-code="${c.code}">${c.label}</button>`).join('')
-  // position above the button
-  const rect = headerCountryBtn.getBoundingClientRect()
-  Object.assign(menu.style, { position: 'fixed', left: `${rect.left}px`, bottom: `${window.innerHeight - rect.top + 4}px`, zIndex: '2000', background: '#1f2937', border: '1px solid rgba(255,255,255,0.18)', borderRadius: '0.55rem', padding: '0.25rem', display: 'flex', flexDirection: 'column', gap: '0.15rem' })
-  document.body.append(menu)
-  const cleanup = () => menu.remove()
-  menu.addEventListener('click', async (e) => {
-    const item = e.target.closest('.country-pick-item')
-    if (!item) return
-    cleanup()
-    const code = item.dataset.code
-    if (code === 'NL') {
-      await activateStateByRegion('NL')
-    } else if (code === 'US') {
-      // open state picker for US
-      renderStatePickerOptions()
-      toggleStatePicker()
-    }
-  })
-  window.setTimeout(() => document.addEventListener('click', cleanup, { once: true, capture: true }), 0)
-})
-
-headerCountrySelect?.addEventListener('change', async (event) => {
-  const code = String(event?.target?.value || '').toUpperCase()
-  if (code === 'NL') await activateStateByRegion('NL')
-  else if (code === 'US') { renderStatePickerOptions(); toggleStatePicker() }
-})
-
 headerStateBtn?.addEventListener('click', (event) => {
   event.preventDefault()
   renderStatePickerOptions()
@@ -5685,8 +5679,8 @@ notableRows.addEventListener('click', (event) => {
     const rowCountyRegion = String(row?.dataset?.countyRegion || countySummaryBtn.dataset.countyRegion || '').toUpperCase()
     const rowCountyName = String(row?.dataset?.county || countySummaryBtn.textContent || '').trim()
     if (rowCountyRegion) {
-      if (/^US-[A-Z]{2}$/.test(rowCountyRegion)) {
-        // It's a state, load state notables and sync state/county pills.
+      if (isStateRegionCode(rowCountyRegion)) {
+        // It's a US state or a LEAF subnational1 (NL-GR province) — load its notables.
         if (searchRegionSelect) searchRegionSelect.value = rowCountyRegion
         if (searchAbaMinInput) searchAbaMinInput.value = '1'
         syncSearchSlidersForRegion(rowCountyRegion)

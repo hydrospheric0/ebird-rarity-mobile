@@ -463,6 +463,17 @@ body.is-resizing {
   align-content: start;
 }
 
+.state-picker-section-header {
+  padding: 0.35rem 0.5rem 0.2rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted, #6b7280);
+  pointer-events: none;
+  user-select: none;
+}
+
 .picker-aba-pills {
   padding-top: 0.35rem;
   border-top: 1px solid var(--border);
