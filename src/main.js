@@ -3856,6 +3856,7 @@ function applySortAndRender() {
   const normalizedRegion = String(regionCode || '').toUpperCase()
   const isCountyView = isCountyRegionCode(normalizedRegion)
   const isYoloCountyView = isCountyView && normalizedRegion === YOLO_COUNTY_REGION
+  const isLeafCountryView = LEAF_SUBNATIONAL1_COUNTRIES.has(normalizedRegion.split('-')[0])
 
   const getPreferredCode = (row) => {
     const aba = Number(row?.abaCode)
@@ -3936,7 +3937,7 @@ function applySortAndRender() {
   const fragment = document.createDocumentFragment()
   data.forEach((item) => {
     const lastBubble = renderDateBubble(formatShortDate(item.last), getDateBubbleClass('last', item.first, item.last))
-    const abaBadge = renderAbaCodeBadge(item.abaCode)
+    const abaBadge = isLeafCountryView ? '' : renderAbaCodeBadge(item.abaCode)
     const yoloBadge = isYoloCountyView ? renderYoloCodeBadge(item.species, item.abaCode) : ''
     const statusBullets = isYoloCountyView ? renderSpeciesStatusBullets(item.species) : ''
     const isConfirmed = Boolean(item.confirmedAny)
@@ -3981,6 +3982,9 @@ function applySortAndRender() {
   ].forEach(({ id, col: mappedCol }) => {
     const th = document.querySelector(`#${id}`)
     if (!th) return
+    if (id === 'thCounty' && th.childNodes[0]?.nodeType === Node.TEXT_NODE) {
+      th.childNodes[0].textContent = isLeafCountryView ? 'Province' : 'County'
+    }
     const icon = th.querySelector('.sort-icon')
     if (!icon) return
     if (mappedCol === col) {
@@ -4816,6 +4820,9 @@ async function loadCountyNotables(latitude, longitude, countyRegion = null, requ
   const normalizedTargetRegion = String(countyRegion || '').toUpperCase() || null
   const normalizedPreviousRegion = String(previousCountyRegionState || '').toUpperCase() || null
   const isExplicitCountySwitch = countySwitchRequestId !== null && Boolean(normalizedTargetRegion) && normalizedTargetRegion !== normalizedPreviousRegion
+  // Detect LEAF country province regions (e.g. 'NL-GR'). These use subnational1Code,
+  // not subnational2Code, and must NOT call the US-only county_notables API.
+  const isLeafProvinceRegion = Boolean(normalizedTargetRegion) && (() => { const p = normalizedTargetRegion.split('-'); return p.length === 2 && LEAF_SUBNATIONAL1_COUNTRIES.has(p[0]) })()
   const previousCountText = notableCount.textContent
   const previousMetaText = notableMeta.textContent
   const previousRowsHtml = notableRows.innerHTML
@@ -4833,11 +4840,11 @@ async function loadCountyNotables(latitude, longitude, countyRegion = null, requ
     const stateCached = stateRegion ? loadNotablesCache(stateRegion) : null
     const stateDays = getCacheDaysBack(stateCached)
     if (stateRegion && Array.isArray(stateCached?.observations) && stateCached.observations.length > 0 && Number.isFinite(stateDays) && stateDays >= effectiveDaysBack) {
-      const scoped = stateCached.observations.filter((item) => String(item?.subnational2Code || '').toUpperCase() === normalizedTargetRegion)
+      const scoped = stateCached.observations.filter((item) => String(isLeafProvinceRegion ? (item?.subnational1Code || '') : (item?.subnational2Code || '')).toUpperCase() === normalizedTargetRegion)
       if (scoped.length > 0) {
         cachedWarm = {
           observations: scoped,
-          countyName: String(scoped[0]?.subnational2Name || '') || null,
+          countyName: String(isLeafProvinceRegion ? (scoped[0]?.subnational1Name || '') : (scoped[0]?.subnational2Name || '')) || null,
           countyRegion: normalizedTargetRegion,
           sourceStrategy: 'state-cache-client',
           __meta: { daysBack: stateDays, fromState: stateRegion },
@@ -4921,45 +4928,66 @@ async function loadCountyNotables(latitude, longitude, countyRegion = null, requ
     let observations = []
     let strategy = null
 
-    // Fire primary (with countyRegion) and generic fallback concurrently so we
-    // don't stack two sequential 5 s timeouts when the primary is slow/failing.
-    const needFallback = !countyRegion // if no region provided, only one fetch needed
-    const primaryPromise = fetchCountyNotablesWithRetry(latitude, longitude, effectiveDaysBack, countyRegion, 1).catch((e) => { console.warn('Primary county notables failed:', e); return null })
-    const fallbackPromise = needFallback
-      ? primaryPromise
-      : fetchCountyNotablesWithRetry(latitude, longitude, effectiveDaysBack, null, 1).catch((e) => { console.warn('Fallback county notables failed:', e); return null })
+    if (isLeafProvinceRegion) {
+      // LEAF country provinces (e.g. NL-GR) must not call the US-only county_notables API.
+      // Load state-level notables and filter locally by subnational1Code.
+      const leafStateRegion = stateRegionFromCountyRegion(normalizedTargetRegion)
+      if (leafStateRegion) {
+        const stateData = await fetchRegionRarities(leafStateRegion, effectiveDaysBack)
+        const leafFiltered = Array.isArray(stateData)
+          ? stateData.filter((item) => String(item?.subnational1Code || '').toUpperCase() === normalizedTargetRegion)
+          : []
+        if (leafFiltered.length > 0) {
+          observations = leafFiltered
+          strategy = 'state-filter-leaf'
+          result = {
+            countyName: String(leafFiltered[0]?.subnational1Name || '') || null,
+            countyRegion: normalizedTargetRegion,
+            sourceStrategy: strategy,
+          }
+        }
+      }
+    } else {
+      // Fire primary (with countyRegion) and generic fallback concurrently so we
+      // don't stack two sequential 5 s timeouts when the primary is slow/failing.
+      const needFallback = !countyRegion // if no region provided, only one fetch needed
+      const primaryPromise = fetchCountyNotablesWithRetry(latitude, longitude, effectiveDaysBack, countyRegion, 1).catch((e) => { console.warn('Primary county notables failed:', e); return null })
+      const fallbackPromise = needFallback
+        ? primaryPromise
+        : fetchCountyNotablesWithRetry(latitude, longitude, effectiveDaysBack, null, 1).catch((e) => { console.warn('Fallback county notables failed:', e); return null })
 
-    const [primaryResult, fallbackResult] = await Promise.all([primaryPromise, fallbackPromise])
+      const [primaryResult, fallbackResult] = await Promise.all([primaryPromise, fallbackPromise])
 
-    const primaryObs = Array.isArray(primaryResult?.observations) ? primaryResult.observations : []
-    const fallbackObs = Array.isArray(fallbackResult?.observations) ? fallbackResult.observations : []
+      const primaryObs = Array.isArray(primaryResult?.observations) ? primaryResult.observations : []
+      const fallbackObs = Array.isArray(fallbackResult?.observations) ? fallbackResult.observations : []
 
-    if (countyRegion) {
-      if (primaryResult && primaryObs.length > 0) {
+      if (countyRegion) {
+        if (primaryResult && primaryObs.length > 0) {
+          result = primaryResult
+          observations = primaryObs
+          strategy = primaryResult?.sourceStrategy || 'county-region'
+        } else if (fallbackResult && fallbackObs.length > 0) {
+          result = fallbackResult
+          observations = fallbackObs
+          strategy = fallbackResult?.sourceStrategy || 'county-fallback'
+        } else if (primaryResult) {
+          result = primaryResult
+          observations = primaryObs
+          strategy = primaryResult?.sourceStrategy || 'county-region'
+        } else if (fallbackResult) {
+          result = fallbackResult
+          observations = fallbackObs
+          strategy = fallbackResult?.sourceStrategy || 'county-fallback'
+        }
+      } else if (primaryObs.length >= fallbackObs.length && primaryObs.length > 0) {
         result = primaryResult
         observations = primaryObs
         strategy = primaryResult?.sourceStrategy || 'county-region'
-      } else if (fallbackResult && fallbackObs.length > 0) {
-        result = fallbackResult
-        observations = fallbackObs
-        strategy = fallbackResult?.sourceStrategy || 'county-fallback'
-      } else if (primaryResult) {
-        result = primaryResult
-        observations = primaryObs
-        strategy = primaryResult?.sourceStrategy || 'county-region'
-      } else if (fallbackResult) {
+      } else if (fallbackObs.length > 0) {
         result = fallbackResult
         observations = fallbackObs
         strategy = fallbackResult?.sourceStrategy || 'county-fallback'
       }
-    } else if (primaryObs.length >= fallbackObs.length && primaryObs.length > 0) {
-      result = primaryResult
-      observations = primaryObs
-      strategy = primaryResult?.sourceStrategy || 'county-region'
-    } else if (fallbackObs.length > 0) {
-      result = fallbackResult
-      observations = fallbackObs
-      strategy = fallbackResult?.sourceStrategy || 'county-fallback'
     }
 
     if (allowStateFallback && !isExplicitCountySwitch && observations.length === 0 && countyRegion) {
@@ -4968,7 +4996,7 @@ async function loadCountyNotables(latitude, longitude, countyRegion = null, requ
         try {
             const stateData = await fetchRegionRarities(stateRegion, effectiveDaysBack)
           const filtered = Array.isArray(stateData)
-            ? stateData.filter((item) => String(item?.subnational2Code || '').toUpperCase() === countyRegion)
+            ? stateData.filter((item) => String(isLeafProvinceRegion ? (item?.subnational1Code || '') : (item?.subnational2Code || '')).toUpperCase() === countyRegion)
             : []
 
           if (filtered.length > observations.length) {
@@ -5005,7 +5033,7 @@ async function loadCountyNotables(latitude, longitude, countyRegion = null, requ
         try {
           const stateData = await fetchRegionRarities(stateRegion, effectiveDaysBack)
           const stateFiltered = Array.isArray(stateData)
-            ? stateData.filter((item) => String(item?.subnational2Code || '').toUpperCase() === activeCountyCode)
+            ? stateData.filter((item) => String(isLeafProvinceRegion ? (item?.subnational1Code || '') : (item?.subnational2Code || '')).toUpperCase() === activeCountyCode)
             : []
           if (stateFiltered.length > 0) {
             displayObs = stateFiltered
