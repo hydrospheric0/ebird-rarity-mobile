@@ -696,22 +696,6 @@ body.is-resizing {
 
 .bottom-aba-bar {
   display: none !important;
-  visibility: hidden;
-  pointer-events: none;
-  overflow: hidden;
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: calc(var(--bottom-select-height) + env(safe-area-inset-bottom));
-  height: 0;
-  background: var(--brand);
-  border-top: 0;
-  z-index: 1290;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: 0;
-  padding: 0;
 }
 
 .bottom-aba-bar .top-aba-pills {
