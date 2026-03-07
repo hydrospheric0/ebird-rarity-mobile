@@ -172,6 +172,7 @@ printf '%s\n' "$next_version" > "$BETA_VERSION_FILE"
 
 # ── Stamp the service-worker version so browsers always pick up new assets ──
 sed -i "s|const SW_VERSION = '[^']*'|const SW_VERSION = '${next_version}'|" public/sw.js
+sed -i "s|var BUILD_VER = '[^']*'|var BUILD_VER = '${next_version}'|" index.html
 
 # ── Commit beta version file + any staged changes ────────────────────────
 git add "$BETA_VERSION_FILE" public/sw.js index.html
