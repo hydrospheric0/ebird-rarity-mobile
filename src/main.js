@@ -87,7 +87,7 @@ app.innerHTML = `
       <button id="menuSearch" class="header-toggle" type="button" aria-label="Search region" title="Search / filter region">
         <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="22" y2="22"/></svg>
       </button>
-      <button id="menuInfo" class="header-toggle" type="button" aria-label="About this page" title="About this page"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="8" r="0.5" fill="currentColor" stroke="currentColor" stroke-width="1.5"/><line x1="12" y1="11" x2="12" y2="16"/></svg></button>
+      <button id="menuInfo" class="header-toggle" type="button" aria-label="About this page" title="About this page"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12.01" y2="8"/><line x1="12" y1="12" x2="12" y2="16"/></svg></button>
 
       <section id="statusPopover" class="status-popover status-hidden" aria-hidden="true">
         <div class="row">
@@ -199,9 +199,6 @@ app.innerHTML = `
     </main>
 
     <div class="bottom-aba-bar" aria-label="ABA summary" hidden aria-hidden="true">
-      <button id="shareTableBtn" class="aba-share-btn" type="button" hidden aria-label="Share list" title="Share visible list">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-      </button>
       <div id="topAbaPills" class="top-aba-pills" aria-label="ABA counts"></div>
     </div>
 
@@ -2121,7 +2118,7 @@ function renderAbaStatPills(sorted) {
   if (bottomAbaBar) {
     bottomAbaBar.removeAttribute('hidden')
     bottomAbaBar.removeAttribute('aria-hidden')
-    document.documentElement.style.setProperty('--bottom-aba-height', '2.5rem')
+    document.documentElement.style.setProperty('--bottom-aba-height', '2.85rem')
   }
 }
 

@@ -699,7 +699,7 @@ body.is-resizing {
   left: 0;
   right: 0;
   bottom: calc(var(--bottom-select-height) + env(safe-area-inset-bottom));
-  height: 2.5rem;
+  height: var(--bottom-select-height);
   background: var(--brand);
   border-top: 1px solid rgba(255,255,255,0.08);
   z-index: 1290;
@@ -730,7 +730,7 @@ body.is-resizing {
   align-items: center;
   justify-content: center;
   color: rgba(248, 250, 252, 0.85);
-  font-size: 0.72rem;
+  font-size: 0.78rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
