@@ -169,8 +169,9 @@ else
 fi
 set_version_files "$next_version"
 
-# Stamp the service worker so every deploy is detected as a new SW by browsers.
+# Stamp the service worker and index.html so every deploy forces a CDN cache miss.
 sed -i "s|const SW_VERSION = '[^']*'|const SW_VERSION = '${next_version}'|" public/sw.js
+sed -i "s|var BUILD_VER = '[^']*'|var BUILD_VER = '${next_version}'|" index.html
 
 # ── Guard: must be on main ──────────────────────────────────────────────────
 CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
