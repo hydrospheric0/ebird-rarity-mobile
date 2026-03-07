@@ -20,8 +20,8 @@
          3. Registers SW with updateViaCache:'none' for automatic future updates. -->
     <script>
       (function () {
-        var BUILD_VER = '0.6.11'
-        var CACHE_RESET_VERSION = '2026-03-06-4'
+        var BUILD_VER = '0.6.12'
+        var CACHE_RESET_VERSION = '2026-03-06-5'
         var CACHE_RESET_KEY = 'mrm_bootstrap_cache_reset_version'
 
         // Step 1: if the URL doesn't have ?_v=BUILD_VER, redirect to it.
@@ -35,21 +35,41 @@
         // Step 2: strip _v from address bar so it doesn't linger.
         history.replaceState(null, '', location.pathname + (location.hash || ''))
 
-        // Step 3: one-time full wipe of old SWs and caches.
+        // Step 3: one-time full wipe of old SWs and caches, then hard-reload
+        // to the versioned URL so CDN serves fresh HTML replacing any cached copy.
         function nukeAndReload() {
           try {
+            var nukeDone = 0
+            var nukeTotal = 0
+            function maybeReload() {
+              nukeDone++
+              if (nukeDone >= nukeTotal) {
+                localStorage.setItem(CACHE_RESET_KEY, CACHE_RESET_VERSION)
+                var rsp = new URLSearchParams()
+                rsp.set('_v', BUILD_VER)
+                location.replace(location.pathname + '?' + rsp.toString())
+              }
+            }
             if (navigator.serviceWorker) {
+              nukeTotal++
               navigator.serviceWorker.getRegistrations().then(function (regs) {
-                regs.forEach(function (r) { r.unregister() })
-              })
+                var p = regs.map(function (r) { return r.unregister() })
+                return Promise.all(p)
+              }).then(maybeReload).catch(maybeReload)
             }
             if (window.caches) {
+              nukeTotal++
               caches.keys().then(function (keys) {
-                keys.forEach(function (k) { caches.delete(k) })
-              })
+                return Promise.all(keys.map(function (k) { return caches.delete(k) }))
+              }).then(maybeReload).catch(maybeReload)
             }
-            localStorage.setItem(CACHE_RESET_KEY, CACHE_RESET_VERSION)
-          } catch (e) {}
+            if (nukeTotal === 0) maybeReload()
+          } catch (e) {
+            try {
+              localStorage.setItem(CACHE_RESET_KEY, CACHE_RESET_VERSION)
+              location.replace(location.pathname + '?_v=' + BUILD_VER)
+            } catch (_) {}
+          }
         }
         try {
           if (localStorage.getItem(CACHE_RESET_KEY) !== CACHE_RESET_VERSION) {
