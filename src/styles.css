@@ -695,6 +695,22 @@ body.is-resizing {
 }
 
 .bottom-aba-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--bottom-select-height) + env(safe-area-inset-bottom));
+  height: 2.5rem;
+  background: var(--brand);
+  border-top: 1px solid rgba(255,255,255,0.08);
+  z-index: 1290;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0;
+  padding: 0 0.5rem;
+}
+
+.bottom-aba-bar[hidden] {
   display: none !important;
 }
 

@@ -2118,6 +2118,11 @@ function renderAbaStatPills(sorted) {
   if (topAbaPills) topAbaPills.innerHTML = labelHtml + pillsHtml
   if (pickerAbaPills) pickerAbaPills.innerHTML = pillsHtml
   if (statePickerAbaPills) statePickerAbaPills.innerHTML = pillsHtml
+  if (bottomAbaBar) {
+    bottomAbaBar.removeAttribute('hidden')
+    bottomAbaBar.removeAttribute('aria-hidden')
+    document.documentElement.style.setProperty('--bottom-aba-height', '2.5rem')
+  }
 }
 
 function setNotablesUnavailableState(metaMessage, rowMessage, statusMessage = 'notables-unavailable') {
@@ -2126,6 +2131,11 @@ function setNotablesUnavailableState(metaMessage, rowMessage, statusMessage = 'n
   notableMeta.textContent = metaMessage
   if (shareTableBtn) shareTableBtn.hidden = true
   updateStatPills('—', '—', '—')
+  if (bottomAbaBar) {
+    bottomAbaBar.setAttribute('hidden', '')
+    bottomAbaBar.setAttribute('aria-hidden', 'true')
+    document.documentElement.style.setProperty('--bottom-aba-height', '0rem')
+  }
   notableRows.innerHTML = `<tr><td colspan="7">${rowMessage}</td></tr>`
   setTableRenderStatus(statusMessage)
 }
