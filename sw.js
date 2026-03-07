@@ -1,7 +1,7 @@
 // SW_VERSION is stamped by pushit.sh on every deploy so the browser detects
 // a byte change in this file and re-installs, triggering activate which clears
 // all stale caches and reloads every open tab to the latest build.
-const SW_VERSION = '0.6.10'
+const SW_VERSION = '0.6.11'
 const LEGACY_CACHE_PREFIXES = ['rarity-mobile-', 'workbox-', 'vite-']
 
 self.addEventListener('install', (event) => {
@@ -18,9 +18,10 @@ self.addEventListener('activate', (event) => {
           .map((key) => caches.delete(key))
       )
     } catch (_) {}
+    // Claim clients so this SW controls all open tabs immediately.
+    // Do NOT call client.navigate() — this SW does zero caching so no reload
+    // is ever needed, and navigate() causes an infinite reload loop on mobile.
     await self.clients.claim()
-    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
-    await Promise.all(clients.map((client) => client.navigate(client.url).catch(() => null)))
   })())
 })
 
