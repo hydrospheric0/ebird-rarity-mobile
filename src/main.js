@@ -87,7 +87,7 @@ app.innerHTML = `
       <button id="menuSearch" class="header-toggle" type="button" aria-label="Search region" title="Search / filter region">
         <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="22" y2="22"/></svg>
       </button>
-      <button id="menuInfo" class="header-toggle" type="button" aria-label="About this page" title="About this page">i</button>
+      <button id="menuInfo" class="header-toggle" type="button" aria-label="About this page" title="About this page"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="8" r="0.5" fill="currentColor" stroke="currentColor" stroke-width="1.5"/><line x1="12" y1="11" x2="12" y2="16"/></svg></button>
 
       <section id="statusPopover" class="status-popover status-hidden" aria-hidden="true">
         <div class="row">
@@ -172,7 +172,7 @@ app.innerHTML = `
             <table class="notable-table">
               <thead>
                 <tr>
-                  <th class="col-code sortable" id="thCode" data-sort="code">Code<span class="sort-icon" aria-hidden="true"></span></th>
+                  <th class="col-code sortable" id="thCode" data-sort="code"><span class="th-three-line">Filter<br>ABA<br>Code</span><span class="sort-icon" aria-hidden="true"></span></th>
                   <th class="col-species sortable" id="thSpecies" data-sort="species">Species<span class="sort-icon" aria-hidden="true"></span></th>
                   <th class="col-county sortable" id="thCounty" data-sort="county">County<span class="sort-icon" aria-hidden="true"></span></th>
                   <th class="col-date sortable" id="thLast" data-sort="last"><span class="th-two-line">Last<br>Seen</span><span class="sort-icon" aria-hidden="true"></span></th>
@@ -2112,7 +2112,7 @@ function renderAbaStatPills(sorted) {
       return `<button type="button" class="stat-aba-pill${isActive ? ' is-active' : ''}${isDisabled ? ' is-locked' : ''}" data-code="${c}" ${isDisabled ? 'disabled aria-disabled="true"' : ''} aria-pressed="${isActive ? 'true' : 'false'}" title="Toggle ABA ${label} filter"><span class="stat-aba-pill-badge ${badgeClass}"><span class="aba-pill-count">${count}</span></span><span class="stat-aba-pill-code" aria-hidden="true">${label}</span></button>`
     })
     .join('')
-  const labelHtml = '<span class="aba-pill-label" aria-hidden="true">ABA<br>code</span>'
+  const labelHtml = '<span class="aba-pill-label" aria-hidden="true">Filter<br>ABA<br>Code</span>'
 
   // Label only belongs in the bottom bar; pickers get pills-only
   if (topAbaPills) topAbaPills.innerHTML = labelHtml + pillsHtml
@@ -5758,6 +5758,9 @@ document.querySelector('#toggleAllVis')?.addEventListener('change', (event) => {
 })
 
 setMode('map')
+
+// Show ABA bar immediately on startup with 0 counts so it's always visible.
+renderAbaStatPills([])
 
 let appBooted = false
 

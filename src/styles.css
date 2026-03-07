@@ -1060,6 +1060,8 @@ body.is-resizing {
   min-height: 0;
 }
 
+#notableCount { display: none !important; }
+
 .table-top-menu {
   display: flex;
   align-items: center;
@@ -1537,6 +1539,7 @@ tr.row-highlighted {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  align-self: flex-start;
   min-width: 5.25rem;
   padding: 0.25rem 0.55rem;
   border-radius: 999px;
@@ -1770,6 +1773,18 @@ a.obs-popup-species {
   gap: 0;
 }
 .th-two-line br { display: block; }
+
+.th-three-line {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.15;
+  gap: 0;
+  font-size: 0.65em;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+}
+.th-three-line br { display: block; }
 
 /* share-table-btn removed — share icon now lives in .aba-share-btn */
 
