@@ -81,28 +81,9 @@ app.innerHTML = `
     </div>
     <header class="app-header">
       <h1 class="app-title"><span class="brandName">Twitcher</span><span class="brandTagline"> - find eBird Rarities</span></h1>
-      <button id="menuPin" class="header-toggle" type="button" aria-label="Zoom to my location" title="Zoom to my location">
-        <svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><polygon points="12,3 19,20 12,16 5,20"/></svg>
-      </button>
-      <button id="menuSearch" class="header-toggle" type="button" aria-label="Search region" title="Search / filter region">
-        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="22" y2="22"/></svg>
-      </button>
-      <button id="menuInfo" class="header-toggle" type="button" aria-label="About this page" title="About this page"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12.01" y2="8"/><line x1="12" y1="12" x2="12" y2="16"/></svg></button>
+      <button id="menuInfo" class="header-toggle header-info-btn" type="button" aria-label="About this page" title="About this page">i</button>
 
       <section id="statusPopover" class="status-popover status-hidden" aria-hidden="true">
-        <div class="row">
-          <span>API Connectivity</span>
-          <span id="apiStatus" class="badge warn">Checking...</span>
-        </div>
-        <p id="apiDetail" class="detail"></p>
-        <p id="buildInfo" class="detail">Build: pending</p>
-
-        <div class="row">
-          <span>Perf</span>
-          <span id="perfBadge" class="badge badge--perf">—</span>
-        </div>
-        <p id="perfDetail" class="detail detail--perf"></p>
-
         <div class="row">
           <span>My Location</span>
           <span id="locationStatus" class="badge warn">Waiting...</span>
@@ -2109,7 +2090,7 @@ function renderAbaStatPills(sorted) {
       return `<button type="button" class="stat-aba-pill${isActive ? ' is-active' : ''}${isDisabled ? ' is-locked' : ''}" data-code="${c}" ${isDisabled ? 'disabled aria-disabled="true"' : ''} aria-pressed="${isActive ? 'true' : 'false'}" title="Toggle ABA ${label} filter"><span class="stat-aba-pill-badge ${badgeClass}"><span class="aba-pill-count">${count}</span></span><span class="stat-aba-pill-code" aria-hidden="true">${label}</span></button>`
     })
     .join('')
-  const labelHtml = '<span class="aba-pill-label" aria-hidden="true">Filter<br>ABA<br>Code</span>'
+  const labelHtml = '<span class="aba-pill-label" aria-hidden="true">Filter by ABA code</span>'
 
   // Label only belongs in the bottom bar; pickers get pills-only
   if (topAbaPills) topAbaPills.innerHTML = labelHtml + pillsHtml

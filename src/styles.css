@@ -644,7 +644,6 @@ body.is-resizing {
 
 .header-toggle {
   position: absolute;
-  right: 0.7rem;
   top: 0.55rem;
   width: 1.65rem;
   height: 1.65rem;
@@ -654,6 +653,20 @@ body.is-resizing {
   color: #f8fafc;
   font-weight: 800;
   line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#menuInfo   { right: 0.7rem; }
+
+.header-info-btn {
+  font-size: 0.95rem;
+  font-weight: 500;
+  font-style: normal;
+  font-family: system-ui, -apple-system, sans-serif;
+  letter-spacing: 0;
+  padding-bottom: 0.05rem;
 }
 
 .status-popover {
@@ -703,9 +716,9 @@ body.is-resizing {
   background: var(--brand);
   border-top: 1px solid rgba(255,255,255,0.08);
   z-index: 1290;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 0;
   padding: 0 0.5rem;
 }
@@ -726,20 +739,14 @@ body.is-resizing {
 }
 .bottom-aba-bar .aba-pill-label {
   display: inline-flex;
-  flex-direction: column;
   align-items: center;
-  justify-content: center;
   color: rgba(248, 250, 252, 0.85);
   font-size: 0.78rem;
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  line-height: 1.25;
-  margin-right: 0.1rem;
+  letter-spacing: 0.01em;
+  margin-right: 0.4rem;
   white-space: nowrap;
 }
-.bottom-aba-bar .aba-pill-label br { display: block; }
-
 .aba-share-btn {
   display: inline-flex;
   align-items: center;
