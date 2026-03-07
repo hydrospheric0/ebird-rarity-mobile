@@ -740,6 +740,7 @@ body.is-resizing {
 .bottom-aba-bar .aba-pill-label {
   display: inline-flex;
   align-items: center;
+  align-self: center;
   color: rgba(248, 250, 252, 0.85);
   font-size: 0.78rem;
   font-weight: 700;
@@ -1092,7 +1093,7 @@ body.is-resizing {
 
 .top-aba-pills {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 0.25rem;
   margin-left: auto;
   flex: 0 0 auto;

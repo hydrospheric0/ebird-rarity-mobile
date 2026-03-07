@@ -2090,7 +2090,7 @@ function renderAbaStatPills(sorted) {
       return `<button type="button" class="stat-aba-pill${isActive ? ' is-active' : ''}${isDisabled ? ' is-locked' : ''}" data-code="${c}" ${isDisabled ? 'disabled aria-disabled="true"' : ''} aria-pressed="${isActive ? 'true' : 'false'}" title="Toggle ABA ${label} filter"><span class="stat-aba-pill-badge ${badgeClass}"><span class="aba-pill-count">${count}</span></span><span class="stat-aba-pill-code" aria-hidden="true">${label}</span></button>`
     })
     .join('')
-  const labelHtml = '<span class="aba-pill-label" aria-hidden="true">Filter by ABA code</span>'
+  const labelHtml = '<span class="aba-pill-label" aria-hidden="true">ABA code</span>'
 
   // Label only belongs in the bottom bar; pickers get pills-only
   if (topAbaPills) topAbaPills.innerHTML = labelHtml + pillsHtml
@@ -2371,21 +2371,16 @@ function setStatusPopoverOpen(open) {
 }
 
 async function checkApi() {
-  apiStatus.className = 'badge warn'
-  apiStatus.textContent = 'Checking...'
-  apiDetail.textContent = `Endpoint: ${API_BASE_URL} · Build ${BUILD_TAG}`
-  if (buildInfo) {
-    buildInfo.textContent = `Build: ${BUILD_TAG}`
-  }
+  if (apiStatus) { apiStatus.className = 'badge warn'; apiStatus.textContent = 'Checking...' }
+  if (apiDetail) apiDetail.textContent = `Endpoint: ${API_BASE_URL} · Build ${BUILD_TAG}`
+  if (buildInfo) buildInfo.textContent = `Build: ${BUILD_TAG}`
   try {
     const data = await fetchWorkerHealth(getStoredEbirdApiKey())
-    apiStatus.className = 'badge ok'
-    apiStatus.textContent = 'Connected'
-    apiDetail.textContent = `Endpoint: ${API_BASE_URL} · Regions loaded: ${Array.isArray(data) ? data.length : 0} · Build ${BUILD_TAG}`
+    if (apiStatus) { apiStatus.className = 'badge ok'; apiStatus.textContent = 'Connected' }
+    if (apiDetail) apiDetail.textContent = `Endpoint: ${API_BASE_URL} · Regions loaded: ${Array.isArray(data) ? data.length : 0} · Build ${BUILD_TAG}`
   } catch (error) {
-    apiStatus.className = 'badge warn'
-    apiStatus.textContent = 'Unavailable'
-    apiDetail.textContent = `Endpoint: ${API_BASE_URL} · ${error.message} · Build ${BUILD_TAG}`
+    if (apiStatus) { apiStatus.className = 'badge warn'; apiStatus.textContent = 'Unavailable' }
+    if (apiDetail) apiDetail.textContent = `Endpoint: ${API_BASE_URL} · ${error.message} · Build ${BUILD_TAG}`
     console.error(error)
   } finally {
     updateRuntimeLog()
