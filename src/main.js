@@ -172,7 +172,7 @@ app.innerHTML = `
             <table class="notable-table">
               <thead>
                 <tr>
-                  <th class="col-code sortable" id="thCode" data-sort="code"><span class="th-three-line">Filter<br>ABA<br>Code</span><span class="sort-icon" aria-hidden="true"></span></th>
+                  <th class="col-code sortable" id="thCode" data-sort="code">Code<span class="sort-icon" aria-hidden="true"></span></th>
                   <th class="col-species sortable" id="thSpecies" data-sort="species">Species<span class="sort-icon" aria-hidden="true"></span></th>
                   <th class="col-county sortable" id="thCounty" data-sort="county">County<span class="sort-icon" aria-hidden="true"></span></th>
                   <th class="col-date sortable" id="thLast" data-sort="last"><span class="th-two-line">Last<br>Seen</span><span class="sort-icon" aria-hidden="true"></span></th>
@@ -3033,16 +3033,11 @@ function computeClosestPointByGroup(observations, anchorLat, anchorLng) {
 }
 
 function getDateBubbleClass(kind, firstDate, lastDate) {
-  const firstOffset = dayOffsetFromToday(firstDate)
   const lastOffset = dayOffsetFromToday(lastDate)
-  // Red: this species was first recorded today — brand new find in the window
-  if (firstOffset === 0) return 'date-bubble-red-new'
-  // Light green: last seen yesterday
-  if (lastOffset === 1) return 'date-bubble-green-light'
-  // Dark green: last seen today (returning sighting) or 2–14 days ago
-  if (lastOffset !== null && lastOffset >= 0 && lastOffset <= 14) return 'date-bubble-green-dark'
-  // Colorless: not seen in the past 14 days (or date unknown)
-  return 'date-bubble-neutral'
+  if (lastOffset === 0) return 'date-bubble-red-new'       // today: red
+  if (lastOffset === 1) return 'date-bubble-green-dark'    // yesterday: dark green
+  if (lastOffset === 2) return 'date-bubble-green-light'   // 2 days ago: light green
+  return 'date-bubble-neutral'                             // older: no color
 }
 
 function renderDateBubble(label, bubbleClass) {

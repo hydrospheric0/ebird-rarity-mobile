@@ -1305,11 +1305,11 @@ body.is-resizing {
 
 .notable-table .col-date {
   white-space: nowrap;
-  width: 2.3rem;
+  width: 2.2rem;
+  text-align: right;
 }
 
-/* Extra right padding on Last so the bubble doesn't crowd the next column */
-.notable-table td.col-last { padding-right: 0.34rem; }
+.notable-table td.col-last { padding-right: 0.05rem; }
 
 .notable-table .col-county {
   width: min(3.2rem, 16vw);
@@ -1339,8 +1339,9 @@ body.is-resizing {
 .notable-table .col-reports {
   position: relative;
   text-align: right;
-  width: 1.35rem;
-  padding-right: 0.2rem;
+  width: 1.1rem;
+  padding-right: 0.05rem;
+  padding-left: 0.05rem;
 }
 
 .col-reports-btn {
@@ -1400,8 +1401,8 @@ body.is-resizing {
   border: 1px solid rgba(15, 23, 42, 0.15);
 }
 
-.count-pill-confirmed { background: #22c55e; }
-.count-pill-pending   { background: #f97316; }
+.count-pill-confirmed { background: #bbf7d0; color: #14532d; border-color: #86efac; }
+.count-pill-pending   { background: #fed7aa; color: #7c2d12; border-color: #fdba74; }
 
 .species-cell {
   display: inline-flex;
@@ -1446,6 +1447,8 @@ tr.row-highlighted {
   line-height: 1.45;
   border: 1px solid rgba(15, 23, 42, 0.2);
   white-space: nowrap;
+  min-width: 2.2rem;
+  text-align: center;
 }
 
 .date-bubble-neutral {
@@ -1640,9 +1643,9 @@ button.primary {
 /* Table visibility & pin columns */
 .col-vis,
 .col-pin {
-  width: 1.4rem;
+  width: 1.1rem;
   text-align: center;
-  padding: 0 0.1rem;
+  padding: 0 0.05rem;
 }
 .obs-vis-cb {
   cursor: pointer;
@@ -1773,18 +1776,6 @@ a.obs-popup-species {
   gap: 0;
 }
 .th-two-line br { display: block; }
-
-.th-three-line {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: center;
-  line-height: 1.15;
-  gap: 0;
-  font-size: 0.65em;
-  text-transform: uppercase;
-  letter-spacing: 0.01em;
-}
-.th-three-line br { display: block; }
 
 /* share-table-btn removed — share icon now lives in .aba-share-btn */
 
