@@ -5737,7 +5737,7 @@ async function bootAppOnce() {
   appBooted = true
 
   hideApiKeyGate()
-  await checkApi()
+  void checkApi() // fire-and-forget: don't block location init
 
   const launchUrl = new URL(window.location.href)
   const forceFreshLocation = launchUrl.searchParams.get('force_location') === '1'
